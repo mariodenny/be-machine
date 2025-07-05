@@ -1,0 +1,5 @@
+node_modules
+.env
+test
+logs
+pushnotification-fe894-firebase-adminsdk-6o36a-b5a82eb18b.json

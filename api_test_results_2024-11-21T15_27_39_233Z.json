@@ -1,0 +1,122 @@
+[
+  {
+    "name": "Get CNC Monitoring Data",
+    "status": 500,
+    "error": "",
+    "success": false
+  },
+  {
+    "name": "Get All CNC Peminjaman",
+    "status": 500,
+    "error": "",
+    "success": false
+  },
+  {
+    "name": "Get CNC Peminjaman by ID",
+    "status": 500,
+    "error": "",
+    "success": false
+  },
+  {
+    "name": "Update CNC Status Disetujui",
+    "status": 500,
+    "error": "",
+    "success": false
+  },
+  {
+    "name": "Update CNC Status Ditolak",
+    "status": 500,
+    "error": "",
+    "success": false
+  },
+  {
+    "name": "Delete CNC Peminjaman",
+    "status": 500,
+    "error": "",
+    "success": false
+  },
+  {
+    "name": "Get LASER Monitoring Data",
+    "status": 500,
+    "error": "",
+    "success": false
+  },
+  {
+    "name": "Get All LASER Peminjaman",
+    "status": 500,
+    "error": "",
+    "success": false
+  },
+  {
+    "name": "Get LASER Peminjaman by ID",
+    "status": 500,
+    "error": "",
+    "success": false
+  },
+  {
+    "name": "Update LASER Status Disetujui",
+    "status": 500,
+    "error": "",
+    "success": false
+  },
+  {
+    "name": "Update LASER Status Ditolak",
+    "status": 500,
+    "error": "",
+    "success": false
+  },
+  {
+    "name": "Delete LASER Peminjaman",
+    "status": 500,
+    "error": "",
+    "success": false
+  },
+  {
+    "name": "Get PRINTING Monitoring Data",
+    "status": 500,
+    "error": "",
+    "success": false
+  },
+  {
+    "name": "Get All PRINTING Peminjaman",
+    "status": 500,
+    "error": "",
+    "success": false
+  },
+  {
+    "name": "Get PRINTING Peminjaman by ID",
+    "status": 500,
+    "error": "",
+    "success": false
+  },
+  {
+    "name": "Update PRINTING Status Disetujui",
+    "status": 500,
+    "error": "",
+    "success": false
+  },
+  {
+    "name": "Update PRINTING Status Ditolak",
+    "status": 500,
+    "error": "",
+    "success": false
+  },
+  {
+    "name": "Delete PRINTING Peminjaman",
+    "status": 500,
+    "error": "",
+    "success": false
+  },
+  {
+    "name": "Get All Approved Peminjaman",
+    "status": 500,
+    "error": "",
+    "success": false
+  },
+  {
+    "name": "Get Approved Peminjaman by Date",
+    "status": 500,
+    "error": "",
+    "success": false
+  }
+]
