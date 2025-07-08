@@ -9,6 +9,8 @@ const http = require("http");
 const NodeCache = require("node-cache");
 const compression = require("compression");
 const { setupWebSocketServer } = require("./config/websocketServer");
+const listEndpoints = require('express-list-endpoints');
+
 
 const WebSocket = require("ws");
 const routeUser = require("./routes/routeAuth");
@@ -26,6 +28,7 @@ const { updateExpiredPeminjaman } = require("./controllers/userController");
 const { getAndUpdateCounts } = require("./controllers/countController");
 
 const app = express();
+console.log(listEndpoints(app));
 
 const server = http.createServer(app);
 
