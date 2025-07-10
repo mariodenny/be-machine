@@ -19,6 +19,9 @@ const routeAdmin = require("./routes/routeAdmin");
 const routeSensor = require("./routes/routeSensor");
 const routeNotification = require("./routes/routeNotification");
 const routeStatus = require('./routes/routeStatus');
+const routeMachine = require('./routes/routeMachine')
+const routeRental = require('./routes/routeRental')
+
 const connectDb = require("./config/db");
 
 const sensorController = require("./controllers/sensorController");
@@ -84,6 +87,9 @@ app.use("/user", routePeminjaman);
 app.use("/sensor", routeSensor);
 app.use("/status", routeStatus);
 app.use("/notifications", routeNotification);
+app.use("/machine",routeMachine)
+app.use("/rental", routeRental)
+
 
 const port = process.env.PORT || 5000;
 
