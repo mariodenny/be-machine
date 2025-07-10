@@ -87,8 +87,8 @@ app.use("/user", routePeminjaman);
 app.use("/sensor", routeSensor);
 app.use("/status", routeStatus);
 app.use("/notifications", routeNotification);
-app.use("/machines",routeMachine)
-app.use("/rentals", routeRental)
+app.use("/api",routeMachine)
+app.use("/api", routeRental)
 
 
 const port = process.env.PORT || 5000;
