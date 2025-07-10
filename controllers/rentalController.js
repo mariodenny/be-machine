@@ -41,3 +41,30 @@ exports.deleteRental = async (req, res) => {
     res.status(500).json({ success: false, error: error.message });
   }
 };
+
+exports.updateRentalStatus = async (req, res) => {
+  const { id } = req.params;
+  const { status } = req.body;
+
+  const allowedStatuses = ["Disetujui", "Ditolak", "Pending"];
+  if (!allowedStatuses.includes(status)) {
+    return res.status(400).json({ success: false, message: "Invalid status value" });
+  }
+
+  try {
+    const rental = await Rental.findByIdAndUpdate(
+      id,
+      { status: status },
+      { new: true }
+    ).populate("machineId").populate("userId");
+
+    if (!rental) {
+      return res.status(404).json({ success: false, message: "Rental not found" });
+    }
+
+    res.status(200).json({ success: true, data: rental });
+  } catch (error) {
+    res.status(500).json({ success: false, error: error.message });
+  }
+};
+

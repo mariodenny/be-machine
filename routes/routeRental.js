@@ -9,5 +9,6 @@ router.post("/rentals", verifyToken, rentalController.createRental);
 router.get("/rentals", verifyToken, rentalController.getRentals);
 router.put("/rentals/:id", verifyToken, rentalController.updateRental);
 router.delete("/rentals/:id", verifyToken, rentalController.deleteRental);
+router.patch("/rentals/:id/status", verifyToken, rentalController.updateRentalStatus);
 
 module.exports = router;
