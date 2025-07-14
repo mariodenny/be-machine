@@ -9,7 +9,7 @@ exports.createMachine = async (req, res) => {
 
     let imageUrl = "";
     if (req.file) {
-      imageUrl = `/uploads/${req.file.filename}`;
+      imageUrl = `../uploads/${req.file.filename}`;
     }
 
     const machine = await Machine.create({
@@ -43,7 +43,7 @@ exports.updateMachine = async (req, res) => {
     const updates = req.body;
 
     if (req.file) {
-      updates.imageUrl = `/uploads/${req.file.filename}`;
+      updates.imageUrl = `../uploads/${req.file.filename}`;
     }
 
     const machine = await Machine.findByIdAndUpdate(id, updates, { new: true });
