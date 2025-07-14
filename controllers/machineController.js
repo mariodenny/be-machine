@@ -1,4 +1,5 @@
 const Machine = require("../models/machineModel");
+const serverUrl = process.env.SERVER_URL || "http://localhost:5000";
 
 exports.createMachine = async (req, res) => {
   try {
@@ -9,7 +10,7 @@ exports.createMachine = async (req, res) => {
 
     let imageUrl = "";
     if (req.file) {
-      imageUrl = `../uploads/${req.file.filename}`;
+      imageUrl = `${serverUrl}/uploads/${req.file.filename}`;
     }
 
     const machine = await Machine.create({
@@ -43,7 +44,7 @@ exports.updateMachine = async (req, res) => {
     const updates = req.body;
 
     if (req.file) {
-      updates.imageUrl = `../uploads/${req.file.filename}`;
+      updates.imageUrl = `${serverUrl}/uploads/${req.file.filename}`;
     }
 
     const machine = await Machine.findByIdAndUpdate(id, updates, { new: true });

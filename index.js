@@ -10,7 +10,7 @@ const NodeCache = require("node-cache");
 const compression = require("compression");
 const { setupWebSocketServer } = require("./config/websocketServer");
 const listEndpoints = require('express-list-endpoints');
-
+const path = require("path")
 
 const WebSocket = require("ws");
 const routeUser = require("./routes/routeAuth");
@@ -72,6 +72,7 @@ app.use(cors());
 
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
+app.use("/uploads", express.static(path.join(__dirname, "./uploads")));
 
 // Connect to database
 connectDb();
