@@ -21,6 +21,11 @@ const routeNotification = require("./routes/routeNotification");
 const routeStatus = require('./routes/routeStatus');
 const routeMachine = require('./routes/routeMachine')
 const routeRental = require('./routes/routeRental')
+// Route V2 versi baru untuk satisfy kebutuhan user
+const routeNotificationV2 = require('./routes/V2/routeNotification')
+const routeSensorV2 = require('./routes/V2/routeSensor')
+// panggil mqtt worker
+require("./controllers/V2/mqttWorker")
 
 const connectDb = require("./config/db");
 
@@ -41,7 +46,7 @@ const admin = require('firebase-admin');
 admin.initializeApp({
   credential: admin.credential.cert({
     type: 'service_account',
-    project_id: 'pushnotification-fe894',
+    project_id: process.env.PROJECT_ID,
     private_key_id: process.env.GOOGLE_PRIVATE_KEY_ID,
     private_key: process.env.GOOGLE_PRIVATE_KEY.replace(/\\n/g, '\n'),
     client_email: process.env.GOOGLE_CLIENT_EMAIL,
@@ -87,9 +92,11 @@ app.use("/user", routePeminjaman);
 app.use("/sensor", routeSensor);
 app.use("/status", routeStatus);
 app.use("/notifications", routeNotification);
-app.use("/api",routeMachine)
+app.use("/api", routeMachine)
 app.use("/api", routeRental)
-
+// Register ke route v2
+app.use("/api/V2/notifications", routeNotificationV2)
+app.use("/api/v2/sensor", routeSensorV2)
 
 const port = process.env.PORT || 5000;
 

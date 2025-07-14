@@ -2,8 +2,8 @@ const Machine = require("../models/machineModel");
 
 exports.createMachine = async (req, res) => {
   try {
-    const { name, type, description } = req.body;
-    const machine = await Machine.create({ name, type, description });
+    const { name, type, description, sensor } = req.body;
+    const machine = await Machine.create({ name, type, description, sensor });
     res.status(201).json({ success: true, data: machine });
   } catch (error) {
     res.status(500).json({ success: false, error: error.message });

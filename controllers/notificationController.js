@@ -786,6 +786,7 @@ const sendAdminNotification = async (peminjaman, type) => {
       }
     };
 
+    // Todo set peminjmana machine based on data machine
     const machineDetails = getMachineDetails(type);
     const title = "Permintaan Peminjaman Baru";
     const body = `Ada pengajuan peminjaman baru untuk ${machineDetails.name} dari ${peminjaman.nama_pemohon}`;
