@@ -19,6 +19,26 @@ exports.getRentals = async (req, res) => {
   }
 };
 
+exports.getRentalsByStatus = async (req, res) => {
+  try {
+    const { status } = req.body;
+
+    if (!status) {
+      return res.status(400).json({ success: false, message: "Status is required" });
+    }
+
+    const rentals = await Rental.find({ status })
+      .populate("machineId")
+      .populate("userId")
+      .sort({ createdAt: -1 });
+
+    res.status(200).json({ success: true, data: rentals });
+  } catch (error) {
+    res.status(500).json({ success: false, error: error.message });
+  }
+};
+
+
 exports.updateRental = async (req, res) => {
   try {
     const { id } = req.params;
