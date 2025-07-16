@@ -1,9 +1,11 @@
 const Rental = require("../models/rentalModel");
+const countController = require('./V2/countController')
 
 exports.createRental = async (req, res) => {
   try {
     const { machineId, userId, awal_peminjaman, akhir_peminjaman } = req.body;
     const rental = await Rental.create({ machineId, userId, awal_peminjaman, akhir_peminjaman });
+    await countController.updateRentalCount();
     res.status(201).json({ success: true, data: rental });
   } catch (error) {
     res.status(500).json({ success: false, error: error.message });
@@ -81,6 +83,7 @@ exports.updateRentalStatus = async (req, res) => {
     if (!rental) {
       return res.status(404).json({ success: false, message: "Rental not found" });
     }
+    await countController.updateRentalCount();
 
     res.status(200).json({ success: true, data: rental });
   } catch (error) {

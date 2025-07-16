@@ -24,6 +24,7 @@ const routeRental = require('./routes/routeRental')
 // Route V2 versi baru untuk satisfy kebutuhan user
 const routeNotificationV2 = require('./routes/V2/routeNotification')
 const routeSensorV2 = require('./routes/V2/routeSensor')
+const routeCountV2 = require('./routes/V2/routeCount')
 // panggil mqtt worker
 require("./controllers/V2/mqttWorker")
 
@@ -98,6 +99,7 @@ app.use("/api", routeRental)
 // Register ke route v2
 app.use("/api/V2/notifications", routeNotificationV2)
 app.use("/api/v2/sensor", routeSensorV2)
+app.use("/api/v2/count", routeCountV2);
 
 const port = process.env.PORT || 5000;
 
