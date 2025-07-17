@@ -2,19 +2,23 @@ const Rental = require("../../models/rentalModel");
 const Count = require("../../models/V2/countModel");
 
 exports.updateRentalCount = async () => {
-    const disetujui = await Rental.countDocuments({ status: "Disetujui" });
-    const ditolak = await Rental.countDocuments({ status: "Ditolak" });
-    const menunggu = await Rental.countDocuments({ status: "Pending" });
+  const machines = await Machine.find();
 
-    const snapshot = await Count.create({
-        disetujui,
-        ditolak,
-        menunggu,
-        waktu: new Date(),
+  for (const machine of machines) {
+    const disetujui = await Rental.countDocuments({ status: "Disetujui", machineId: machine._id });
+    const ditolak = await Rental.countDocuments({ status: "Ditolak", machineId: machine._id });
+    const menunggu = await Rental.countDocuments({ status: "Pending", machineId: machine._id });
+
+    await Count.create({
+      machineId: machine._id,
+      disetujui,
+      ditolak,
+      menunggu,
+      waktu: new Date(),
     });
+  }
 
-    console.log("Count snapshot created:", snapshot);
-    return snapshot;
+  console.log("✅ Snapshot per mesin berhasil disimpan");
 };
 
 exports.getAllCounts = async (req, res) => {
@@ -28,91 +32,117 @@ exports.getAllCounts = async (req, res) => {
 
 exports.getUsageReport = async (req, res) => {
     try {
+        const {machineId} = req.params
+
         const today = new Date();
         today.setHours(0, 0, 0, 0);
         const now = new Date();
 
-        // Pemakaian Hari Ini
-        const rentalsToday = await Rental.find({
-            createdAt: { $gte: today, $lte: now },
-            status: "Disetujui"
-        });
+        const machines = await Machine.find();
 
-        let totalTodayHours = 0;
-        rentalsToday.forEach(r => {
-            const start = new Date(r.awal_peminjaman);
-            const end = new Date(r.akhir_peminjaman);
-            const durasiJam = Math.abs(end - start) / 36e5;
-            totalTodayHours += durasiJam;
-        });
+        const reportPerMesin = [];
 
-        const uniqueUsersToday = await Rental.distinct("userId", {
-            createdAt: { $gte: today, $lte: now },
-            status: "Disetujui"
-        });
+        for (const machine of machines) {
+            const todayRentals = await Rental.find({
+                machineId: machine._id,
+                status: "Disetujui",
+                createdAt: { $gte: today, $lte: now }
+            });
 
-        // Pemakaian Total
-        const totalRentals = await Rental.find({ status: "Disetujui" });
-        let totalAllHours = 0;
-        totalRentals.forEach(r => {
-            const start = new Date(r.awal_peminjaman);
-            const end = new Date(r.akhir_peminjaman);
-            const durasiJam = Math.abs(end - start) / 36e5;
-            totalAllHours += durasiJam;
-        });
+            let totalTodayHours = 0;
+            const usersTodaySet = new Set();
 
-        // Trend 7 Hari
-        const sevenDaysAgo = new Date();
-        sevenDaysAgo.setDate(today.getDate() - 7);
+            todayRentals.forEach(r => {
+                const start = new Date(r.awal_peminjaman);
+                const end = new Date(r.akhir_peminjaman);
+                const durasiJam = Math.abs(end - start) / 36e5;
+                totalTodayHours += durasiJam;
+                usersTodaySet.add(String(r.userId));
+            });
 
-        const trend = await Rental.aggregate([
-            {
-                $match: {
-                    createdAt: { $gte: sevenDaysAgo, $lte: now },
-                    status: "Disetujui"
-                }
-            },
-            {
-                $project: {
-                    date: { $dateToString: { format: "%Y-%m-%d", date: "$createdAt" } },
-                    durasiJam: {
-                        $divide: [
-                            { $subtract: ["$akhir_peminjaman", "$awal_peminjaman"] },
-                            1000 * 60 * 60
-                        ]
-                    },
-                    userId: 1
-                }
-            },
-            {
-                $group: {
-                    _id: "$date",
-                    totalDurasiJam: { $sum: "$durasiJam" },
-                    penggunaUnik: { $addToSet: "$userId" }
-                }
-            },
-            {
-                $project: {
-                    date: "$_id",
-                    totalDurasiJam: 1,
-                    totalPengguna: { $size: "$penggunaUnik" },
-                    _id: 0
-                }
-            },
-            { $sort: { date: 1 } }
-        ]);
+            // Semua rentals (total sewa)
+            const totalRentals = await Rental.find({
+                machineId: machine._id,
+                status: "Disetujui"
+            });
+
+            let totalAllHours = 0;
+            totalRentals.forEach(r => {
+                const start = new Date(r.awal_peminjaman);
+                const end = new Date(r.akhir_peminjaman);
+                const durasiJam = Math.abs(end - start) / 36e5;
+                totalAllHours += durasiJam;
+            });
+
+            // Trend 7 hari per mesin
+            const sevenDaysAgo = new Date();
+            sevenDaysAgo.setDate(today.getDate() - 7);
+
+            const trend = await Rental.aggregate([
+                {
+                    $match: {
+                        machineId: machine._id,
+                        createdAt: { $gte: sevenDaysAgo, $lte: now },
+                        status: "Disetujui"
+                    }
+                },
+                {
+                    $project: {
+                        date: { $dateToString: { format: "%Y-%m-%d", date: "$createdAt" } },
+                        durasiJam: {
+                            $divide: [
+                                { $subtract: ["$akhir_peminjaman", "$awal_peminjaman"] },
+                                1000 * 60 * 60
+                            ]
+                        },
+                        userId: 1
+                    }
+                },
+                {
+                    $group: {
+                        _id: "$date",
+                        totalDurasiJam: { $sum: "$durasiJam" },
+                        penggunaUnik: { $addToSet: "$userId" }
+                    }
+                },
+                {
+                    $project: {
+                        date: "$_id",
+                        totalDurasiJam: 1,
+                        totalPengguna: { $size: "$penggunaUnik" },
+                        _id: 0
+                    }
+                },
+                { $sort: { date: 1 } }
+            ]);
+
+            reportPerMesin.push({
+                machineId: machine._id,
+                machineName: machine.name,
+                pemakaianHariIni: totalTodayHours,
+                totalSewa: totalAllHours,
+                penggunaHariIni: usersTodaySet.size,
+                trend7Hari: trend
+            });
+        }
 
         res.json({
             success: true,
-            data: {
-                pemakaianHariIni: totalTodayHours,
-                totalSewa: totalAllHours,
-                penggunaHariIni: uniqueUsersToday.length,
-                trend7Hari: trend
-            }
+            data: reportPerMesin
         });
 
     } catch (error) {
         res.status(500).json({ success: false, error: error.message });
     }
+};
+
+exports.getCountByMachine = async (req, res) => {
+  try {
+    const { machineId } = req.params;
+
+    const counts = await Count.find({ machineId }).sort({ waktu: -1 });
+    res.status(200).json({ success: true, data: counts });
+  } catch (error) {
+    res.status(500).json({ success: false, error: error.message });
+  }
 };
