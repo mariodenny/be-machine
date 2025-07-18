@@ -31,6 +31,16 @@ exports.getAllCounts = async (req, res) => {
     }
 };
 
+exports.getCountByMachine = async (req, res) => {
+  try {
+    const { machineId } = req.params;
+
+    const counts = await Count.find({ machineId }).sort({ waktu: -1 });
+    res.status(200).json({ success: true, data: counts });
+  } catch (error) {
+    res.status(500).json({ success: false, error: error.message });
+  }
+};
 
 exports.getUsageReport = async (req, res) => {
   try {
@@ -39,6 +49,9 @@ exports.getUsageReport = async (req, res) => {
     const today = new Date();
     today.setHours(0, 0, 0, 0);
     const now = new Date();
+
+    const sevenDaysAgo = new Date();
+    sevenDaysAgo.setDate(today.getDate() - 6); // 7 hari termasuk hari ini
 
     const machineQuery = machineId ? { _id: machineId } : {};
     const machines = await Machine.find(machineQuery);
@@ -78,53 +91,58 @@ exports.getUsageReport = async (req, res) => {
         totalAllHours += durasiJam;
       });
 
-      // Trend 7 hari per mesin
-      const sevenDaysAgo = new Date();
-      sevenDaysAgo.setDate(today.getDate() - 7);
+      // Trend 7 hari per mesin (manual distribusi)
+      const trendMap = {};
+      for (let i = 6; i >= 0; i--) {
+        const date = new Date();
+        date.setDate(today.getDate() - i);
+        const key = date.toISOString().slice(0, 10);
+        trendMap[key] = { date: key, totalDurasiJam: 0, totalPenggunaSet: new Set() };
+      }
 
-      const trend = await Rental.aggregate([
-        {
-          $match: {
-            machineId: machine._id,
-            createdAt: { $gte: sevenDaysAgo, $lte: now },
-            status: "Disetujui"
+      const recentRentals = await Rental.find({
+        machineId: machine._id,
+        status: "Disetujui",
+        createdAt: { $gte: sevenDaysAgo, $lte: now }
+      });
+
+      recentRentals.forEach(r => {
+        const start = new Date(r.awal_peminjaman);
+        const end = new Date(r.akhir_peminjaman);
+
+        let current = new Date(start);
+        current.setHours(0, 0, 0, 0);
+
+        while (current <= end) {
+          const nextDay = new Date(current);
+          nextDay.setDate(current.getDate() + 1);
+
+          const segmentStart = current < start ? start : current;
+          const segmentEnd = nextDay > end ? end : nextDay;
+
+          const durasiJam = (segmentEnd - segmentStart) / 36e5;
+          const key = current.toISOString().slice(0, 10);
+
+          if (trendMap[key]) {
+            trendMap[key].totalDurasiJam += durasiJam;
+            trendMap[key].totalPenggunaSet.add(String(r.userId));
           }
-        },
-        {
-          $project: {
-            date: { $dateToString: { format: "%Y-%m-%d", date: "$createdAt" } },
-            durasiJam: {
-              $divide: [
-                { $subtract: ["$akhir_peminjaman", "$awal_peminjaman"] },
-                1000 * 60 * 60
-              ]
-            },
-            userId: 1
-          }
-        },
-        {
-          $group: {
-            _id: "$date",
-            totalDurasiJam: { $sum: "$durasiJam" },
-            penggunaUnik: { $addToSet: "$userId" }
-          }
-        },
-        {
-          $project: {
-            date: "$_id",
-            totalDurasiJam: 1,
-            totalPengguna: { $size: "$penggunaUnik" },
-            _id: 0
-          }
-        },
-        { $sort: { date: 1 } }
-      ]);
+
+          current = nextDay;
+        }
+      });
+
+      const trend = Object.values(trendMap).map(entry => ({
+        date: entry.date,
+        totalDurasiJam: Number(entry.totalDurasiJam.toFixed(2)),
+        totalPengguna: entry.totalPenggunaSet.size
+      }));
 
       reportPerMesin.push({
         machineId: machine._id,
         machineName: machine.name,
-        pemakaianHariIni: totalTodayHours,
-        totalSewa: totalAllHours,
+        pemakaianHariIni: Number(totalTodayHours.toFixed(2)),
+        totalSewa: Number(totalAllHours.toFixed(2)),
         penggunaHariIni: usersTodaySet.size,
         trend7Hari: trend
       });
@@ -141,13 +159,3 @@ exports.getUsageReport = async (req, res) => {
 };
 
 
-exports.getCountByMachine = async (req, res) => {
-  try {
-    const { machineId } = req.params;
-
-    const counts = await Count.find({ machineId }).sort({ waktu: -1 });
-    res.status(200).json({ success: true, data: counts });
-  } catch (error) {
-    res.status(500).json({ success: false, error: error.message });
-  }
-};
