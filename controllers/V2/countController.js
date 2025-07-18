@@ -50,9 +50,6 @@ exports.getUsageReport = async (req, res) => {
     today.setHours(0, 0, 0, 0);
     const now = new Date();
 
-    const sevenDaysAgo = new Date();
-    sevenDaysAgo.setDate(today.getDate() - 6); // 7 hari termasuk hari ini
-
     const machineQuery = machineId ? { _id: machineId } : {};
     const machines = await Machine.find(machineQuery);
 
@@ -91,60 +88,46 @@ exports.getUsageReport = async (req, res) => {
         totalAllHours += durasiJam;
       });
 
-      // Trend 7 hari per mesin (manual distribusi)
-      const trendMap = {};
+      // Prepare 7 days trend
+      const sevenDaysAgo = new Date();
+      sevenDaysAgo.setDate(today.getDate() - 6); // termasuk hari ini
+
+      const trend7Hari = [];
       for (let i = 6; i >= 0; i--) {
         const date = new Date();
         date.setDate(today.getDate() - i);
-        const key = date.toISOString().slice(0, 10);
-        trendMap[key] = { date: key, totalDurasiJam: 0, totalPenggunaSet: new Set() };
+        const dateStr = date.toISOString().split("T")[0];
+        trend7Hari.push({
+          date: dateStr,
+          totalDurasiJam: 0,
+          totalPengguna: 0,
+        });
       }
 
-      const recentRentals = await Rental.find({
+      const sewa7Hari = await Rental.find({
         machineId: machine._id,
         status: "Disetujui",
         createdAt: { $gte: sevenDaysAgo, $lte: now }
       });
 
-      recentRentals.forEach(r => {
-        const start = new Date(r.awal_peminjaman);
-        const end = new Date(r.akhir_peminjaman);
+      sewa7Hari.forEach(r => {
+        const awal = new Date(r.awal_peminjaman);
+        const tglStr = awal.toISOString().split("T")[0];
 
-        let current = new Date(start);
-        current.setHours(0, 0, 0, 0);
-
-        while (current <= end) {
-          const nextDay = new Date(current);
-          nextDay.setDate(current.getDate() + 1);
-
-          const segmentStart = current < start ? start : current;
-          const segmentEnd = nextDay > end ? end : nextDay;
-
-          const durasiJam = (segmentEnd - segmentStart) / 36e5;
-          const key = current.toISOString().slice(0, 10);
-
-          if (trendMap[key]) {
-            trendMap[key].totalDurasiJam += durasiJam;
-            trendMap[key].totalPenggunaSet.add(String(r.userId));
-          }
-
-          current = nextDay;
+        const hariTrend = trend7Hari.find(d => d.date === tglStr);
+        if (hariTrend) {
+          hariTrend.totalDurasiJam += 24; // sesuai revisi: fix 24 jam
+          hariTrend.totalPengguna += 1;
         }
       });
-
-      const trend = Object.values(trendMap).map(entry => ({
-        date: entry.date,
-        totalDurasiJam: Number(entry.totalDurasiJam.toFixed(2)),
-        totalPengguna: entry.totalPenggunaSet.size
-      }));
 
       reportPerMesin.push({
         machineId: machine._id,
         machineName: machine.name,
-        pemakaianHariIni: Number(totalTodayHours.toFixed(2)),
-        totalSewa: Number(totalAllHours.toFixed(2)),
+        pemakaianHariIni: totalTodayHours,
+        totalSewa: totalAllHours,
         penggunaHariIni: usersTodaySet.size,
-        trend7Hari: trend
+        trend7Hari: trend7Hari
       });
     }
 
@@ -157,5 +140,3 @@ exports.getUsageReport = async (req, res) => {
     res.status(500).json({ success: false, error: error.message });
   }
 };
-
-
