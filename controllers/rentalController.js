@@ -21,6 +21,55 @@ exports.getRentals = async (req, res) => {
   }
 };
 
+exports.getRentalByUserId = async (req, res) => {
+  try {
+    const { userId } = req.params;
+
+    const rentals = await Rental.find({ userId })
+      .populate({
+        path: "machineId",
+        select: "name model description imageUrl"
+      })
+      .sort({ createdAt: -1 });
+
+    if (!rentals.length) {
+      return res.status(404).json({ success: false, message: "No rentals found for this user" });
+    }
+
+    const result = rentals.map(rental => {
+      const start = new Date(rental.awal_peminjaman);
+      const end = new Date(rental.akhir_peminjaman);
+      const oneDayMs = 1000 * 60 * 60 * 24;
+      const days = Math.ceil(Math.abs(end - start) / oneDayMs);
+
+      return {
+        id: rental._id,
+        waktuPinjam: {
+          awal: rental.awal_peminjaman,
+          akhir: rental.akhir_peminjaman,
+          jumlahHari: days
+        },
+        mesin: {
+          nama: rental.machineId.name,
+          model: rental.machineId.model,
+          deskripsi: rental.machineId.description,
+          gambar: rental.machineId.imageUrl
+        },
+        status: rental.status,
+        isStarted: rental.isStarted,
+        isActivated: rental.isActivated,
+        createdAt: rental.createdAt
+      };
+    });
+
+    res.status(200).json({ success: true, data: result });
+
+  } catch (error) {
+    res.status(500).json({ success: false, error: error.message });
+  }
+};
+
+
 exports.getRentalById = async (req, res) => {
   try {
     const { id } = req.params;
