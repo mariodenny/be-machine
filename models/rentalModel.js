@@ -8,6 +8,8 @@ const rentalSchema = new mongoose.Schema({
   akhir_peminjaman: Date,
   isStarted: { type: Boolean, default: false },
   isActivated: { type: Boolean, default: false },
+  startTime: { type: Date },
+  endTime: { type: Date }, 
   createdAt: { type: Date, default: Date.now }
 });
 
