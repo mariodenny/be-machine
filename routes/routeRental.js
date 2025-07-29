@@ -14,6 +14,6 @@ router.patch("/rentals/:id/status", verifyToken, rentalController.updateRentalSt
 router.patch("/rentals/:id/start", verifyToken, rentalController.startRental);
 router.patch("/rentals/:id/end", verifyToken, rentalController.endRental);
 router.get("/rentals/:id", verifyToken, rentalController.getRentalById);
-route.get("/rentals/:userId", verifyToken, rentalController.getRentalByUserId)
+router.get("/rentals/:userId", verifyToken, rentalController.getRentalByUserId)
 
 module.exports = router;
