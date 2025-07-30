@@ -36,31 +36,40 @@ exports.getRentalByUserId = async (req, res) => {
       return res.status(404).json({ success: false, message: "No rentals found for this user" });
     }
 
-    const result = rentals.map(rental => {
-      const start = new Date(rental.awal_peminjaman);
-      const end = new Date(rental.akhir_peminjaman);
-      const oneDayMs = 1000 * 60 * 60 * 24;
-      const days = Math.ceil(Math.abs(end - start) / oneDayMs);
+const result = rentals.map(rental => {
+  const start = new Date(rental.awal_peminjaman);
+  const end = new Date(rental.akhir_peminjaman);
+  const oneDayMs = 1000 * 60 * 60 * 24;
+  const days = Math.ceil(Math.abs(end - start) / oneDayMs);
 
-      return {
-        id: rental._id,
-        waktuPinjam: {
-          awal: rental.awal_peminjaman,
-          akhir: rental.akhir_peminjaman,
-          jumlahHari: days
-        },
-        mesin: {
-          nama: rental.machineId.name,
-          model: rental.machineId.model,
-          deskripsi: rental.machineId.description,
-          gambar: rental.machineId.imageUrl
-        },
-        status: rental.status,
-        isStarted: rental.isStarted,
-        isActivated: rental.isActivated,
-        createdAt: rental.createdAt
+  const mesin = rental.machineId
+    ? {
+        nama: rental.machineId.name,
+        model: rental.machineId.model,
+        deskripsi: rental.machineId.description,
+        gambar: rental.machineId.imageUrl
+      }
+    : {
+        nama: null,
+        model: null,
+        deskripsi: null,
+        gambar: null
       };
-    });
+
+  return {
+    id: rental._id,
+    waktuPinjam: {
+      awal: rental.awal_peminjaman,
+      akhir: rental.akhir_peminjaman,
+      jumlahHari: days
+    },
+    mesin,
+    status: rental.status,
+    isStarted: rental.isStarted,
+    isActivated: rental.isActivated,
+    createdAt: rental.createdAt
+  };
+});
 
     res.status(200).json({ success: true, data: result });
 
