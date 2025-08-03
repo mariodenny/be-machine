@@ -27,7 +27,7 @@
     "moment-timezone": "^0.5.45",
     "mongodb": "^6.8.0",
     "mongoose": "^8.4.4",
-    "mqtt": "^5.10.1",
+    "mqtt": "^5.14.0",
     "multer": "^1.4.5-lts.1",
     "node": "^22.11.0",
     "node-cache": "^5.1.2",

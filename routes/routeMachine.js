@@ -11,5 +11,6 @@ router.post("/machines", upload.single("image"), verifyToken, machineController.
 router.get("/machines", verifyToken, machineController.getMachines);
 router.put("/machines/:id", upload.single("image"), verifyToken, machineController.updateMachine);
 router.delete("/machines/:id", verifyToken, machineController.deleteMachine);
+router.get("/machine/:id",verifyToken,machineController.getMachineById)
 
 module.exports = router;

@@ -1,6 +1,23 @@
 const Machine = require("../models/machineModel");
 const serverUrl = process.env.SERVER_URL || "http://localhost:5000";
 
+
+// get machine by id
+exports.getMachineById = async (req, res) => {
+  try {
+    const { id } = req.params;
+    
+    const machine = await Machine.findById(id);
+    if (!machine) {
+      return res.status(404).json({ success: false, message: "Machine not found" });
+    }
+
+    res.status(200).json({ success: true, data: machine });
+  } catch (error) {
+    res.status(500).json({ success: false, error: error.message });
+  }
+};
+
 exports.createMachine = async (req, res) => {
   try {
     const { name, type, model, description, sensor, esp_address } = req.body;
