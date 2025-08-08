@@ -60,23 +60,31 @@ exports.saveSensorData = async (req, res) => {
     }
 };
 
-// NEW: Save sensor data dari MQTT (format baru dari ESP32)
 exports.saveSensorDataFromMQTT = async (sensorData) => {
     try {
         const { sensorId, machineId, rentalId, sensorType, value, timestamp, chipId } = sensorData;
 
         // Validasi machine exists
-        const machine = await Machine.findById(machineId);
+        let machine = null;
+
+        if (mongoose.Types.ObjectId.isValid(machineId)) {
+            machine = await Machine.findById(machineId);
+        }
+
+        if (!machine && chipId) {
+            machine = await Machine.findOne({ chipId });
+        }
+
         if (!machine) {
-            console.error(`❌ Machine not found: ${machineId}`);
+            console.error(`❌ Machine not found. machineId: ${machineId}, chipId: ${chipId}`);
             return null;
         }
 
         // Create sensor record
         const sensor = await Sensor.create({
             sensorId,
-            machineId,
-            rentalId,
+            machineId: machine._id, // ← pakai _id valid
+            rentalId: rentalId || machine.rentalId,
             chipId,
             sensorType,
             value,
@@ -93,6 +101,7 @@ exports.saveSensorDataFromMQTT = async (sensorData) => {
         return null;
     }
 };
+
 
 // NEW: Save machine status dari MQTT
 exports.saveMachineStatus = async (statusData) => {

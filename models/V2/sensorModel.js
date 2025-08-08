@@ -5,14 +5,14 @@ const sensorSchema = new mongoose.Schema({
     machineId: {
         type: mongoose.Schema.Types.ObjectId,
         ref: "Machine",
-        required: true,
+        required: false,
     },
     rentalId: {
         type: String,
     },
     chipId: {
         type: String,
-        required: true,
+        required: false,
     },
     
     // Sensor specific info
