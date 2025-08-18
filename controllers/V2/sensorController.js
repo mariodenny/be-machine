@@ -67,7 +67,7 @@ exports.saveSensorDataFromMQTT = async (data) => {
             return;
         }
 
-        const sensorData = new SensorV2({
+        const sensorData = new Sensor({
             rentalId: data.rentalId,
             machineId: data.machineId,
             sensorType: data.sensorType,
