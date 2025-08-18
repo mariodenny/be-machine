@@ -71,7 +71,8 @@ exports.saveSensorDataFromMQTT = async (data) => {
             rentalId: data.rentalId,
             machineId: data.machineId,
             sensorType: data.sensorType,
-            value: data.value || 0
+            value: data.value || 0,
+            waktu: new Date()
         });
 
         await sensorData.save();
@@ -81,17 +82,15 @@ exports.saveSensorDataFromMQTT = async (data) => {
     }
 };
 
-// NEW: Save machine status dari MQTT
 exports.saveMachineStatus = async (statusData) => {
     try {
         const {
-            machineId, rentalId, status, activeSensors, chipId,
+            machineId, rentalId, status, activeSensors,
             uptime, freeHeap, wifiRSSI, timestamp
         } = statusData;
 
-        // Update atau create machine status
         const machineStatus = await MachineStatus.findOneAndUpdate(
-            { machineId, chipId },
+            { machineId },
             {
                 rentalId,
                 status,
@@ -107,28 +106,17 @@ exports.saveMachineStatus = async (statusData) => {
 
         console.log(`📊 Machine status saved: ${machineId} - ${status}`);
         return machineStatus;
-
     } catch (error) {
         console.error('❌ Error saving machine status:', error.message);
         return null;
     }
 };
-
-// NEW: Save connection status dari MQTT
 exports.saveConnectionStatus = async (connectionData) => {
     try {
-        const { chipId, status, ip, rssi } = connectionData;
+        const { machineId, status, ip, rssi } = connectionData;
 
-        // Find machine by chipId
-        const machine = await Machine.findOne({ chipId });
-        if (!machine) {
-            console.error(`❌ Machine not found for chipId: ${chipId}`);
-            return null;
-        }
-
-        // Update connection status
         const machineStatus = await MachineStatus.findOneAndUpdate(
-            { chipId },
+            { machineId },
             {
                 connectionStatus: status,
                 ipAddress: ip,
@@ -139,22 +127,20 @@ exports.saveConnectionStatus = async (connectionData) => {
             { new: true, upsert: true }
         );
 
-        console.log(`🔌 Connection status updated: ${chipId} - ${status}`);
+        console.log(`🔌 Connection status updated: ${machineId} - ${status}`);
         return machineStatus;
-
     } catch (error) {
         console.error('❌ Error saving connection status:', error.message);
         return null;
     }
 };
 
-// NEW: Save heartbeat dari MQTT
 exports.saveHeartbeat = async (heartbeatData) => {
     try {
-        const { chipId, uptime, freeHeap, wifiRSSI, machineId, isStarted } = heartbeatData;
+        const { machineId, uptime, freeHeap, wifiRSSI, isStarted } = heartbeatData;
 
         const machineStatus = await MachineStatus.findOneAndUpdate(
-            { chipId },
+            { machineId },
             {
                 uptime,
                 freeHeap,
@@ -166,9 +152,8 @@ exports.saveHeartbeat = async (heartbeatData) => {
             { new: true, upsert: true }
         );
 
-        console.log(`💓 Heartbeat saved: ${chipId} - ${isStarted ? 'ON' : 'OFF'}`);
+        console.log(`💓 Heartbeat saved: ${machineId} - ${isStarted ? 'ON' : 'OFF'}`);
         return machineStatus;
-
     } catch (error) {
         console.error('❌ Error saving heartbeat:', error.message);
         return null;

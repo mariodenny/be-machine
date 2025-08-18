@@ -139,21 +139,21 @@ client.on('message', async (topic, message) => {
     const data = JSON.parse(message.toString());
     console.log(`📥 Received from ${topic}:`, data);
 
-    // Handle sensor data
-    if (topic.startsWith('sensor/')) {
+    // Semua payload WAJIB bawa machineId
+    if (!data.machineId) {
+      console.warn(`⚠️ Skipping message from ${topic}, missing machineId`);
+      return;
+    }
+
+    if (topic) {
       await sensorController.saveSensorDataFromMQTT(data);
     }
-    // Handle machine status
     else if (topic.includes('/status')) {
       await sensorController.saveMachineStatus(data);
     }
-
-    // Handle connection status
     else if (topic.includes('/connection')) {
       await sensorController.saveConnectionStatus(data);
     }
-
-    // Handle heartbeat
     else if (topic.includes('/heartbeat')) {
       await sensorController.saveHeartbeat(data);
     }
@@ -163,19 +163,17 @@ client.on('message', async (topic, message) => {
     console.log('Raw message:', message.toString());
   }
 });
-
 // Function untuk send config ke ESP32 berdasarkan machine
 const sendMachineConfig = async (chipId, machineData) => {
   try {
-    // Ambil machine langsung dari machineId, bukan chipId
+    // Cari langsung pakai machineId
     const machine = await Machine.findById(machineData.machineId);
-
     if (!machine) {
       console.error(`❌ Machine not found for ID: ${machineData.machineId}`);
       return false;
     }
 
-    // Prepare config payload
+    // Payload config dikirim ke ESP → sudah ada machineId
     const config = {
       machineId: machine._id.toString(),
       rentalId: machineData.rentalId || "",
@@ -183,12 +181,14 @@ const sendMachineConfig = async (chipId, machineData) => {
       sensors: machineData.sensors || []
     };
 
-    return publishConfig(chipId, config); // chipId cuma dipakai untuk topic MQTT
+    // Tetap publish ke topic berdasarkan chipId (buat routing ke device)
+    return publishConfig(chipId, config);
   } catch (error) {
     console.error('❌ Error sending machine config:', error.message);
     return false;
   }
 };
+
 
 // Function untuk send command ke machine
 const sendMachineCommand = (chipId, command) => {

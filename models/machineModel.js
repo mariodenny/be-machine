@@ -8,6 +8,7 @@ const machineSchema = new mongoose.Schema({
   status: { type: String, enum: ["available", "maintenance", "inactive"], default: "available" },
   sensor: { type: String, default: "default_sensor_value" },
   esp_address: { type: String, default: "192.168.0.1" },
+  // chipId: { type: String, unique: true, required: false },
   imageUrl: { type: String, default: "" },
   createdAt: { type: Date, default: Date.now }
 });
