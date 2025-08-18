@@ -1,5 +1,6 @@
 const mqtt = require('mqtt');
 const sensorController = require('../controllers/V2/sensorController'); // Adjust path
+const Machine = require('../models/machineModel')
 const { log } = require('console');
 require('dotenv').config();
 
@@ -166,12 +167,11 @@ client.on('message', async (topic, message) => {
 // Function untuk send config ke ESP32 berdasarkan machine
 const sendMachineConfig = async (chipId, machineData) => {
   try {
-    const Machine = require('../models/machineModel'); // Adjust path
+    // Ambil machine langsung dari machineId, bukan chipId
+    const machine = await Machine.findById(machineData.machineId);
 
-    // Get machine info
-    const machine = await Machine.findOne({ chipId });
     if (!machine) {
-      console.error(`❌ Machine not found for chipId: ${chipId}`);
+      console.error(`❌ Machine not found for ID: ${machineData.machineId}`);
       return false;
     }
 
@@ -180,29 +180,10 @@ const sendMachineConfig = async (chipId, machineData) => {
       machineId: machine._id.toString(),
       rentalId: machineData.rentalId || "",
       statusInterval: 5000,
-      sensors: machineData.sensors || [
-        {
-          sensorId: `${machine._id}_suhu`,
-          sensorType: "suhu",
-          isActive: true,
-          readInterval: 10000
-        },
-        {
-          sensorId: `${machine._id}_tekanan`,
-          sensorType: "tekanan",
-          isActive: true,
-          readInterval: 5000
-        },
-        {
-          sensorId: `${machine._id}_getaran`,
-          sensorType: "getaran",
-          isActive: true,
-          readInterval: 3000
-        }
-      ]
+      sensors: machineData.sensors || []
     };
 
-    return publishConfig(chipId, config);
+    return publishConfig(chipId, config); // chipId cuma dipakai untuk topic MQTT
   } catch (error) {
     console.error('❌ Error sending machine config:', error.message);
     return false;
