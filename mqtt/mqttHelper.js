@@ -1,11 +1,12 @@
 const mqtt = require('mqtt');
 const sensorController = require('../controllers/V2/sensorController'); // Adjust path
+const { log } = require('console');
 require('dotenv').config();
 
 // HiveMQ Cloud configuration
 const options = {
-  host: process.env.HIVEMQ_HOST, 
-  port: process.env.HIVEMQ_PORT || 8883, 
+  host: process.env.HIVEMQ_HOST,
+  port: process.env.HIVEMQ_PORT || 8883,
   username: process.env.HIVEMQ_USERNAME,
   password: process.env.HIVEMQ_PASSWORD,
   protocol: 'mqtts',
@@ -20,7 +21,7 @@ const client = mqtt.connect(options);
 client.on('connect', () => {
   console.log("MQTT connected to HiveMQ Cloud");
   console.log(`Connected to: ${options.host}:${options.port}`);
-  
+
   // Subscribe ke semua topics yang diperlukan
   subscribeToAllTopics();
 });
@@ -49,16 +50,17 @@ const publishConfig = (chipId, payload) => {
 
   const topic = `machine/${chipId}/config`;
   const message = JSON.stringify(payload);
-  
+
   client.publish(topic, message, { qos: 1, retain: false }, (err) => {
     if (err) {
       console.error("❌ Publish config error:", err.message);
     } else {
       console.log(`📤 Published config to ${topic}`);
       console.log(`📋 Config data:`, payload);
+      console.log(`Message ${message}`)
     }
   });
-  
+
   return true;
 };
 
@@ -70,7 +72,7 @@ const publishCommand = (chipId, command) => {
 
   const topic = `machine/${chipId}/command`;
   const message = command.toLowerCase();
-  
+
   client.publish(topic, message, { qos: 1, retain: false }, (err) => {
     if (err) {
       console.error("❌ Publish command error:", err.message);
@@ -78,7 +80,7 @@ const publishCommand = (chipId, command) => {
       console.log(`📤 Sent command '${message}' to ${topic}`);
     }
   });
-  
+
   return true;
 };
 
@@ -140,17 +142,17 @@ client.on('message', async (topic, message) => {
     if (topic.startsWith('sensor/') && topic.endsWith('/data')) {
       await sensorController.saveSensorDataFromMQTT(data);
     }
-    
+
     // Handle machine status
     else if (topic.includes('/status')) {
       await sensorController.saveMachineStatus(data);
     }
-    
+
     // Handle connection status
     else if (topic.includes('/connection')) {
       await sensorController.saveConnectionStatus(data);
     }
-    
+
     // Handle heartbeat
     else if (topic.includes('/heartbeat')) {
       await sensorController.saveHeartbeat(data);
@@ -166,7 +168,7 @@ client.on('message', async (topic, message) => {
 const sendMachineConfig = async (chipId, machineData) => {
   try {
     const Machine = require('../models/machineModel'); // Adjust path
-    
+
     // Get machine info
     const machine = await Machine.findOne({ chipId });
     if (!machine) {
@@ -188,7 +190,7 @@ const sendMachineConfig = async (chipId, machineData) => {
         },
         {
           sensorId: `${machine._id}_tekanan`,
-          sensorType: "tekanan", 
+          sensorType: "tekanan",
           isActive: true,
           readInterval: 5000
         },
