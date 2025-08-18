@@ -139,10 +139,9 @@ client.on('message', async (topic, message) => {
     console.log(`📥 Received from ${topic}:`, data);
 
     // Handle sensor data
-    if (topic.startsWith('sensor/') && topic.endsWith('/data')) {
+    if (topic.startsWith('sensor/')) {
       await sensorController.saveSensorDataFromMQTT(data);
     }
-
     // Handle machine status
     else if (topic.includes('/status')) {
       await sensorController.saveMachineStatus(data);

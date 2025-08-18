@@ -60,55 +60,33 @@ exports.saveSensorData = async (req, res) => {
     }
 };
 
-exports.saveSensorDataFromMQTT = async (sensorData) => {
+exports.saveSensorDataFromMQTT = async (data) => {
     try {
-        const { sensorId, machineId, rentalId, sensorType, value, timestamp, chipId } = sensorData;
-
-        // Validasi machine exists
-        let machine = null;
-
-        if (mongoose.Types.ObjectId.isValid(machineId)) {
-            machine = await Machine.findById(machineId);
+        if (!data.rentalId || !data.machineId || !data.sensorType) {
+            console.warn("⚠️ Incomplete sensor data, skipping:", data);
+            return;
         }
 
-        if (!machine && chipId) {
-            machine = await Machine.findOne({ chipId });
-        }
-
-        if (!machine) {
-            console.error(`❌ Machine not found. machineId: ${machineId}, chipId: ${chipId}`);
-            return null;
-        }
-
-        // Create sensor record
-        const sensor = await Sensor.create({
-            sensorId,
-            machineId: machine._id, // ← pakai _id valid
-            rentalId: rentalId || machine.rentalId,
-            chipId,
-            sensorType,
-            value,
-            deviceTimestamp: timestamp,
-            mqttTopic: `sensor/${sensorId}/data`,
-            waktu: new Date(),
+        const sensorData = new SensorV2({
+            rentalId: data.rentalId,
+            machineId: data.machineId,
+            sensorType: data.sensorType,
+            value: data.value || 0
         });
 
-        console.log(`💾 Sensor data saved: ${sensorType} = ${value} (${sensor.unit})`);
-        return sensor;
-
+        await sensorData.save();
+        console.log("✅ Sensor data saved:", sensorData);
     } catch (error) {
-        console.error('❌ Error saving sensor data from MQTT:', error.message);
-        return null;
+        console.error("❌ Error saving sensor data:", error.message);
     }
 };
-
 
 // NEW: Save machine status dari MQTT
 exports.saveMachineStatus = async (statusData) => {
     try {
-        const { 
-            machineId, rentalId, status, activeSensors, chipId, 
-            uptime, freeHeap, wifiRSSI, timestamp 
+        const {
+            machineId, rentalId, status, activeSensors, chipId,
+            uptime, freeHeap, wifiRSSI, timestamp
         } = statusData;
 
         // Update atau create machine status
@@ -248,20 +226,20 @@ exports.getLatestSensorsByType = async (req, res) => {
         const sensors = {};
 
         for (const type of sensorTypes) {
-            const latestSensor = await Sensor.findOne({ 
-                machineId, 
-                sensorType: type 
+            const latestSensor = await Sensor.findOne({
+                machineId,
+                sensorType: type
             }).sort({ waktu: -1 });
-            
+
             if (latestSensor) {
                 sensors[type] = latestSensor;
             }
         }
 
-        res.json({ 
-            success: true, 
+        res.json({
+            success: true,
             data: sensors,
-            count: Object.keys(sensors).length 
+            count: Object.keys(sensors).length
         });
     } catch (err) {
         res.status(500).json({ success: false, error: err.message });
@@ -287,11 +265,11 @@ exports.getMachineWithSensors = async (req, res) => {
         const latestSensors = {};
 
         for (const type of sensorTypes) {
-            const sensor = await Sensor.findOne({ 
-                machineId, 
-                sensorType: type 
+            const sensor = await Sensor.findOne({
+                machineId,
+                sensorType: type
             }).sort({ waktu: -1 });
-            
+
             if (sensor) {
                 latestSensors[type] = sensor;
             }
@@ -320,7 +298,7 @@ exports.getRecentSensorData = async (req, res) => {
         const timeAgo = new Date();
         timeAgo.setMinutes(timeAgo.getMinutes() - parseInt(minutes));
 
-        let query = { 
+        let query = {
             machineId,
             waktu: { $gte: timeAgo }
         };
@@ -331,8 +309,8 @@ exports.getRecentSensorData = async (req, res) => {
 
         const sensors = await Sensor.find(query).sort({ waktu: -1 });
 
-        res.json({ 
-            success: true, 
+        res.json({
+            success: true,
             data: sensors,
             timeRange: `${minutes} minutes`,
             sensorType: sensorType || 'all',
@@ -350,17 +328,17 @@ exports.getLiveStatus = async (req, res) => {
     try {
         // Get machine status
         const machineStatus = await MachineStatus.findOne({ machineId });
-        
+
         // Get latest sensors
         const sensorTypes = ['suhu', 'tekanan', 'getaran', 'current', 'button', 'buzzer'];
         const sensors = {};
 
         for (const type of sensorTypes) {
-            const sensor = await Sensor.findOne({ 
-                machineId, 
-                sensorType: type 
+            const sensor = await Sensor.findOne({
+                machineId,
+                sensorType: type
             }).sort({ waktu: -1 });
-            
+
             if (sensor) {
                 sensors[type] = {
                     value: sensor.value,
@@ -389,19 +367,19 @@ exports.getLiveStatus = async (req, res) => {
 exports.getAllMachinesStatus = async (req, res) => {
     try {
         const machines = await Machine.find().select('_id name chipId location status');
-        
+
         const machinesWithStatus = await Promise.all(
             machines.map(async (machine) => {
                 // Get machine status
                 const machineStatus = await MachineStatus.findOne({ machineId: machine._id });
-                
+
                 // Get latest sensors count by type
                 const sensorCounts = {};
                 const sensorTypes = ['suhu', 'tekanan', 'getaran', 'current', 'button', 'buzzer'];
-                
+
                 for (const type of sensorTypes) {
-                    const count = await Sensor.countDocuments({ 
-                        machineId: machine._id, 
+                    const count = await Sensor.countDocuments({
+                        machineId: machine._id,
                         sensorType: type,
                         waktu: { $gte: new Date(Date.now() - 24 * 60 * 60 * 1000) } // last 24h
                     });
@@ -424,8 +402,8 @@ exports.getAllMachinesStatus = async (req, res) => {
             offline: machinesWithStatus.filter(m => !m.isOnline).length,
         };
 
-        res.json({ 
-            success: true, 
+        res.json({
+            success: true,
             data: machinesWithStatus,
             summary
         });
