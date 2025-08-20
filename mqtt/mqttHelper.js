@@ -56,8 +56,6 @@ const publishConfig = (chipId, payload) => {
     if (err) {
       console.error("❌ Publish config error:", err.message);
     } else {
-      console.log(`📤 Published config to ${topic}`);
-      console.log(`📋 Config data:`, payload);
       console.log(`Message ${message}`)
     }
   });
