@@ -133,34 +133,44 @@ const subscribeToAllTopics = () => {
   });
 };
 
-// Main message handler
 client.on('message', async (topic, message) => {
   try {
     const data = JSON.parse(message.toString());
     console.log(`📥 Received from ${topic}:`, data);
 
-    // Semua payload WAJIB bawa machineId
-    if (!data.machineId) {
-      console.warn(`⚠️ Skipping message from ${topic}, missing machineId`);
+    if (topic.includes('/connection')) {
+      if (!data.machineId || data.machineId === "") {
+        console.log(`ℹ️ Connection message from ${topic} with empty/missing machineId - this is normal on first connect`);
+        await sensorController.saveConnectionStatus(data);
+        return;
+      }
+      await sensorController.saveConnectionStatus(data);
       return;
     }
 
-    if (topic) {
+    if (!data.machineId || data.machineId === "") {
+      console.warn(`⚠️ Skipping message from ${topic}, missing or empty machineId`);
+      console.warn(`   Raw data:`, data);
+      return;
+    }
+
+    if (topic.includes('/data')) {
       await sensorController.saveSensorDataFromMQTT(data);
     }
     else if (topic.includes('/status')) {
       await sensorController.saveMachineStatus(data);
     }
-    else if (topic.includes('/connection')) {
-      await sensorController.saveConnectionStatus(data);
-    }
     else if (topic.includes('/heartbeat')) {
       await sensorController.saveHeartbeat(data);
+    }
+    else {
+      console.warn(`⚠️ Unknown topic pattern: ${topic}`);
     }
 
   } catch (error) {
     console.error('❌ Error processing MQTT message:', error.message);
     console.log('Raw message:', message.toString());
+    console.log('Topic:', topic);
   }
 });
 // Function untuk send config ke ESP32 berdasarkan machine

@@ -53,6 +53,7 @@ unsigned long statusInterval = 5000; // interval kirim status umum
 unsigned long heartbeatInterval = 30000; // heartbeat setiap 30 detik
 bool isStarted = false;
 bool mqttConnected = false;
+bool configReceived = false;  // ✅ Track apakah sudah terima config
 
 // Array untuk menyimpan sensor-sensor
 Sensor sensors[10]; // maksimal 10 sensor
@@ -132,7 +133,127 @@ float executeSensor(Sensor &sensor) {
   return value;
 }
 
-// ---------------- FUNGSI MQTT CALLBACK ----------------
+// ---------------- FUNGSI KIRIM CONNECTION STATUS (FIXED) ----------------
+void sendConnectionStatus(bool connected) {
+  StaticJsonDocument<256> doc;
+  doc["chipId"] = chipId;
+  
+  // ✅ TAMBAHKAN machineId - wajib ada untuk semua message
+  if (machineId != "") {
+    doc["machineId"] = machineId;
+  } else {
+    doc["machineId"] = "";  // Kirim empty string supaya tidak error di server
+    Serial.println("⚠️ Warning: Sending connection status without machineId (belum terima config)");
+  }
+  
+  doc["status"] = connected ? "online" : "offline";
+  doc["timestamp"] = millis();
+  doc["ip"] = WiFi.localIP().toString();
+  doc["rssi"] = WiFi.RSSI();
+  
+  char buffer[256];
+  serializeJson(doc, buffer);
+  
+  String topic = "machine/" + chipId + "/connection";
+  client.publish(topic.c_str(), buffer, true); // retained message
+  
+  Serial.println("📡 Connection status sent: " + String(connected ? "ONLINE" : "OFFLINE"));
+  Serial.println("   Machine ID: '" + machineId + "'");
+  Serial.println("   Raw JSON: " + String(buffer));  // ✅ Debug log
+}
+
+// ---------------- FUNGSI KIRIM STATUS UMUM (IMPROVED) ----------------
+void sendMachineStatus() {
+  if (machineId == "" || !mqttConnected) {
+    Serial.println("⚠️ Skip machine status - machineId kosong atau MQTT tidak connect");
+    return;
+  }
+  
+  StaticJsonDocument<512> doc;
+  doc["machineId"] = machineId;  // ✅ Wajib ada
+  doc["rentalId"] = rentalId;
+  doc["status"] = isStarted ? "ON" : "OFF";
+  doc["timestamp"] = millis();
+  doc["activeSensors"] = sensorCount;
+  doc["chipId"] = chipId;
+  doc["uptime"] = millis() / 1000;
+  doc["freeHeap"] = ESP.getFreeHeap();
+  doc["wifiRSSI"] = WiFi.RSSI();
+  
+  char buffer[512];
+  serializeJson(doc, buffer);
+  
+  String topic = "machine/" + machineId + "/status";  // ✅ Pakai machineId untuk routing
+  bool published = client.publish(topic.c_str(), buffer, 0);
+  
+  if (published) {
+    Serial.println("📊 Status mesin dikirim: " + String(isStarted ? "ON" : "OFF"));
+    Serial.println("   Topic: " + topic);
+  } else {
+    Serial.println("❌ Failed to send machine status");
+  }
+}
+
+// ---------------- FUNGSI KIRIM DATA SENSOR (IMPROVED) ----------------
+void sendSensorData(Sensor &sensor) {
+  if (!mqttConnected || machineId == "") {
+    Serial.println("⚠️ Skip sensor data - MQTT tidak connect atau machineId kosong");
+    return;
+  }
+  
+  StaticJsonDocument<256> doc;
+  doc["sensorId"] = sensor.sensorId;
+  doc["machineId"] = machineId;  // ✅ Wajib ada
+  doc["rentalId"] = rentalId;
+  doc["sensorType"] = sensor.sensorType;
+  doc["value"] = sensor.lastValue;
+  doc["timestamp"] = millis();
+  doc["chipId"] = chipId;
+  
+  char buffer[256];
+  serializeJson(doc, buffer);
+  
+  String topic = "sensor/" + sensor.sensorId + "/data";
+  bool published = client.publish(topic.c_str(), buffer, 0);
+  
+  if (published) {
+    Serial.println("📤 Data sensor dikirim [" + sensor.sensorType + "]: " + String(sensor.lastValue));
+    Serial.println("   Topic: " + topic);
+  } else {
+    Serial.println("❌ Failed to send sensor data: " + sensor.sensorType);
+  }
+}
+
+// ---------------- FUNGSI KIRIM HEARTBEAT (IMPROVED) ----------------
+void sendHeartbeat() {
+  if (!mqttConnected) return;
+  
+  StaticJsonDocument<256> doc;
+  doc["chipId"] = chipId;
+  
+  // ✅ TAMBAHKAN machineId - wajib ada untuk semua message
+  if (machineId != "") {
+    doc["machineId"] = machineId;
+  } else {
+    doc["machineId"] = "";  // Empty string supaya tidak error di server
+  }
+  
+  doc["timestamp"] = millis();
+  doc["uptime"] = millis() / 1000;
+  doc["freeHeap"] = ESP.getFreeHeap();
+  doc["wifiRSSI"] = WiFi.RSSI();
+  doc["isStarted"] = isStarted;
+  
+  char buffer[256];
+  serializeJson(doc, buffer);
+  
+  String topic = "machine/" + chipId + "/heartbeat";
+  client.publish(topic.c_str(), buffer, 0);
+  
+  Serial.println("💓 Heartbeat sent - Uptime: " + String(millis()/1000) + "s, Free Heap: " + String(ESP.getFreeHeap()));
+}
+
+// ---------------- FUNGSI MQTT CALLBACK (IMPROVED) ----------------
 void callback(char* topic, byte* payload, unsigned int length) {
   payload[length] = '\0';
   String message = String((char*)payload);
@@ -165,6 +286,8 @@ void callback(char* topic, byte* payload, unsigned int length) {
         }
       }
       
+      configReceived = true;  // ✅ Mark config sudah diterima
+      
       Serial.println("🔧 === CONFIG DITERIMA ===");
       Serial.println("📋 Rental ID: " + rentalId);
       Serial.println("🏭 Machine ID: " + machineId);
@@ -177,6 +300,11 @@ void callback(char* topic, byte* payload, unsigned int length) {
                       sensors[i].sensorType + ") - " + 
                       (sensors[i].isActive ? "AKTIF ✅" : "NONAKTIF ❌"));
       }
+      
+      // ✅ Kirim ulang connection status dengan machineId yang baru
+      Serial.println("🔄 Sending updated connection status with machineId...");
+      sendConnectionStatus(true);
+      
     } else {
       Serial.println("❌ Error parsing config JSON: " + String(err.c_str()));
     }
@@ -196,7 +324,7 @@ void callback(char* topic, byte* payload, unsigned int length) {
   }
 }
 
-// ---------------- FUNGSI MQTT RECONNECT ----------------
+// ---------------- FUNGSI MQTT RECONNECT (IMPROVED) ----------------
 void reconnect() {
   while (!client.connected()) {
     Serial.print("🔄 Menghubungkan ke HiveMQ Cloud...");
@@ -219,7 +347,7 @@ void reconnect() {
       Serial.println("   - " + configTopic + (configSub ? " ✅" : " ❌"));
       Serial.println("   - " + commandTopic + (commandSub ? " ✅" : " ❌"));
       
-      // Send connection status
+      // ✅ Send connection status (akan ada machineId="" pertama kali, tapi tidak error)
       sendConnectionStatus(true);
       
     } else {
@@ -241,100 +369,6 @@ void reconnect() {
       delay(5000);
     }
   }
-}
-
-// ---------------- FUNGSI KIRIM CONNECTION STATUS ----------------
-void sendConnectionStatus(bool connected) {
-  StaticJsonDocument<256> doc;
-  doc["chipId"] = chipId;
-  doc["status"] = connected ? "online" : "offline";
-  doc["timestamp"] = millis();
-  doc["ip"] = WiFi.localIP().toString();
-  doc["rssi"] = WiFi.RSSI();
-  
-  char buffer[256];
-  serializeJson(doc, buffer);
-  
-  String topic = "machine/" + chipId + "/connection";
-  client.publish(topic.c_str(), buffer, true); // retained message
-  
-  Serial.println("📡 Connection status sent: " + String(connected ? "ONLINE" : "OFFLINE"));
-}
-
-// ---------------- FUNGSI KIRIM STATUS UMUM ----------------
-void sendMachineStatus() {
-  if (machineId == "" || !mqttConnected) return;
-  
-  StaticJsonDocument<512> doc;
-  doc["machineId"] = machineId;
-  doc["rentalId"] = rentalId;
-  doc["status"] = isStarted ? "ON" : "OFF";
-  doc["timestamp"] = millis();
-  doc["activeSensors"] = sensorCount;
-  doc["chipId"] = chipId;
-  doc["uptime"] = millis() / 1000;
-  doc["freeHeap"] = ESP.getFreeHeap();
-  doc["wifiRSSI"] = WiFi.RSSI();
-  
-  char buffer[512];
-  serializeJson(doc, buffer);
-  
-  String topic = "machine/" + machineId + "/status";
-  bool published = client.publish(topic.c_str(), buffer, 0);
-  
-  if (published) {
-    Serial.println("📊 Status mesin dikirim: " + String(isStarted ? "ON" : "OFF"));
-  } else {
-    Serial.println("❌ Failed to send machine status");
-  }
-}
-
-// ---------------- FUNGSI KIRIM DATA SENSOR ----------------
-void sendSensorData(Sensor &sensor) {
-  if (!mqttConnected || machineId == "") return;
-  
-  StaticJsonDocument<256> doc;
-  doc["sensorId"] = sensor.sensorId;
-  doc["machineId"] = machineId;
-  doc["rentalId"] = rentalId;
-  doc["sensorType"] = sensor.sensorType;
-  doc["value"] = sensor.lastValue;
-  doc["timestamp"] = millis();
-  doc["chipId"] = chipId;
-  
-  char buffer[256];
-  serializeJson(doc, buffer);
-  
-  String topic = "sensor/" + sensor.sensorId + "/data";
-  bool published = client.publish(topic.c_str(), buffer, 0);
-  
-  if (published) {
-    Serial.println("📤 Data sensor dikirim [" + sensor.sensorType + "]: " + String(sensor.lastValue));
-  } else {
-    Serial.println("❌ Failed to send sensor data: " + sensor.sensorType);
-  }
-}
-
-// ---------------- FUNGSI KIRIM HEARTBEAT ----------------
-void sendHeartbeat() {
-  if (!mqttConnected) return;
-  
-  StaticJsonDocument<256> doc;
-  doc["chipId"] = chipId;
-  doc["timestamp"] = millis();
-  doc["uptime"] = millis() / 1000;
-  doc["freeHeap"] = ESP.getFreeHeap();
-  doc["wifiRSSI"] = WiFi.RSSI();
-  doc["machineId"] = machineId;
-  doc["isStarted"] = isStarted;
-  
-  char buffer[256];
-  serializeJson(doc, buffer);
-  
-  String topic = "machine/" + chipId + "/heartbeat";
-  client.publish(topic.c_str(), buffer, 0);
-  
-  Serial.println("💓 Heartbeat sent - Uptime: " + String(millis()/1000) + "s, Free Heap: " + String(ESP.getFreeHeap()));
 }
 
 // ---------------- FUNGSI SETUP ----------------
@@ -415,7 +449,7 @@ void setup() {
   Serial.println("✅ === ESP32 MULTI-SENSOR READY ===");
 }
 
-// ---------------- FUNGSI LOOP ----------------
+// ---------------- FUNGSI LOOP (IMPROVED) ----------------
 void loop() {
   // Check WiFi connection
   if (WiFi.status() != WL_CONNECTED) {
@@ -440,14 +474,14 @@ void loop() {
     sendHeartbeat();
   }
   
-  // Kirim status mesin secara berkala
+  // ✅ Kirim status mesin secara berkala (hanya jika sudah punya machineId)
   if (machineId != "" && now - lastSend > statusInterval) {
     lastSend = now;
     sendMachineStatus();
   }
   
-  // Proses setiap sensor jika mesin aktif
-  if (isStarted && machineId != "" && mqttConnected) {
+  // ✅ Proses setiap sensor jika mesin aktif DAN sudah terima config
+  if (isStarted && machineId != "" && mqttConnected && configReceived) {
     for (int i = 0; i < sensorCount; i++) {
       Sensor &sensor = sensors[i];
       
