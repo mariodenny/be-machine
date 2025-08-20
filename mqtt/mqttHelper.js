@@ -136,7 +136,7 @@ const subscribeToAllTopics = () => {
 client.on('message', async (topic, message) => {
   try {
     const data = JSON.parse(message.toString());
-    console.log(`📥 Received from ${topic}:`, data);
+    console.log(`📥 Received from ${topic}:`, JSON.stringify(data, null, 2));
 
     if (topic.includes('/connection')) {
       if (!data.machineId || data.machineId === "") {
@@ -150,7 +150,7 @@ client.on('message', async (topic, message) => {
 
     if (!data.machineId || data.machineId === "") {
       console.warn(`⚠️ Skipping message from ${topic}, missing or empty machineId`);
-      console.warn(`   Raw data:`, data);
+      console.warn("   Raw data:", JSON.stringify(data, null, 2));
       return;
     }
 
