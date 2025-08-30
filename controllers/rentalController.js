@@ -1,11 +1,7 @@
 const Rental = require("../models/rentalModel");
 const countController = require("./V2/countController");
-<<<<<<< HEAD
 const {publishConfig, publishCommand} = require('../mqtt/mqttHelper')
 const mqttHelper = require('../mqtt/mqttHelper')
-=======
-const { publishConfig, publishCommand } = require('../mqtt/mqttHelper')
->>>>>>> 7e3e1736837111624935078ff035df990a7f4d3a
 
 exports.createRental = async (req, res) => {
   try {
