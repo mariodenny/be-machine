@@ -1,6 +1,7 @@
 const Rental = require("../models/rentalModel");
 const countController = require("./V2/countController");
 const {publishConfig, publishCommand} = require('../mqtt/mqttHelper')
+const mqttHelper = require('../mqtt/mqttHelper')
 
 exports.createRental = async (req, res) => {
   try {
@@ -209,18 +210,51 @@ exports.updateRentalStatus = async (req, res) => {
 exports.startRental = async (req, res) => {
   try {
     const { id } = req.params;
-    const rental = await Rental.findById(id).populate('machineId');
+    
+    // Populate dulu saat find
+    const rental = await Rental.findById(id)
+      .populate('machineId')
+      .populate('userId', 'name email');
 
-    if (!rental) return res.status(404).json({ success: false, message: "Rental not found" });
+    if (!rental) {
+      return res.status(404).json({ 
+        success: false, 
+        message: "Rental not found" 
+      });
+    }
 
-    if (rental.isStarted) return res.status(400).json({ success: false, message: "Rental already started" });
+    // Debug log untuk cek data
+    console.log('🔍 Rental data:', {
+      id: rental._id,
+      machineId: rental.machineId,
+      userId: rental.userId,
+      status: rental.status
+    });
+
+    if (rental.isStarted) {
+      return res.status(400).json({ 
+        success: false, 
+        message: "Rental already started" 
+      });
+    }
 
     // Validasi apakah rental sudah disetujui
     if (rental.status !== "Disetujui") {
-      return res.status(400).json({ success: false, message: "Rental belum disetujui" });
+      return res.status(400).json({ 
+        success: false, 
+        message: "Rental belum disetujui" 
+      });
     }
 
-    // Validasi waktu rental (apakah sudah waktunya mulai)
+    // Cek apakah ada machineId
+    if (!rental.machineId) {
+      return res.status(400).json({ 
+        success: false, 
+        message: "Rental tidak memiliki machine yang terdaftar" 
+      });
+    }
+
+    // Validasi waktu rental
     const now = new Date();
     const awalPeminjaman = new Date(rental.awal_peminjaman);
     const akhirPeminjaman = new Date(rental.akhir_peminjaman);
@@ -244,48 +278,70 @@ exports.startRental = async (req, res) => {
 
     // Update rental dengan waktu aktual mulai
     rental.isStarted = true;
-    rental.startTime = now; // Pakai field yang sudah ada
+    rental.isActivated = true;
+    rental.startTime = now;
     await rental.save();
 
-    // Kirim command START ke ESP32 via MQTT
-    if (rental.machineId && rental.machineId.esp_address) {
-      try {
-        // Kirim config dulu (opsional, jika perlu update config)
-        const configPayload = {
-          rentalId: rental._id,
-          machineId: rental.machineId._id,
-          statusInterval: 5000,
-          sensors: rental.machineId.sensor || [] // dari machine model
-        };
-        
-        publishConfig(rental.machineId.esp_address, configPayload);
-        
-        // Kirim command start
-        publishCommand(rental.machineId.esp_address, "start");
-        
-        console.log(`MQTT START command sent to ESP32: ${rental.machineId.esp_address}`);
-      } catch (mqttError) {
-        console.error("MQTT Error:", mqttError.message);
-        // Jangan gagalkan rental jika MQTT error
-      }
+    // 🚀 Kirim config ke ESP32 via MQTT menggunakan mqttRentalHelper
+    try {
+      console.log(`📡 Sending rental config to ESP32 via MQTT...`);
+      
+      const machineIdStr = rental.machineId._id.toString();
+      const rentalIdStr = rental._id.toString();
+      
+      // Gunakan mqttRentalHelper untuk kirim config
+      const mqttResult = await mqttHelper.startRental(machineIdStr, rentalIdStr);
+      
+      console.log('✅ MQTT Config sent successfully:', mqttResult);
+      
+      // Log untuk monitoring
+      console.log(`🎯 Rental started:`, {
+        machineId: machineIdStr,
+        rentalId: rentalIdStr,
+        machineName: rental.machineId.name || 'Unknown',
+        userName: rental.userId.name || 'Unknown',
+        esp_address: rental.machineId.esp_address || 'Not configured'
+      });
+      
+    } catch (mqttError) {
+      console.error("❌ MQTT Error:", mqttError.message);
+      
+      // Tetap lanjutkan rental tapi beri warning
+      console.warn('⚠️ Rental started but MQTT config failed. ESP32 might not receive config.');
+      
+      // Optional: Revert rental status jika MQTT critical
+      // rental.isStarted = false;
+      // rental.startTime = null;
+      // await rental.save();
+      // return res.status(500).json({
+      //   success: false,
+      //   message: "Rental gagal dimulai: MQTT connection error"
+      // });
     }
 
-    // Populate data untuk response
-    await rental.populate('userId', 'name email');
-    await rental.populate('machineId', 'name type model');
-
+    // Return response dengan data yang sudah di-populated
     res.status(200).json({ 
       success: true, 
       message: "Rental berhasil dimulai", 
       data: {
-        ...rental.toObject(),
+        rentalId: rental._id,
+        machineId: rental.machineId._id,
+        machineName: rental.machineId.name,
+        userName: rental.userId.name,
         waktu_mulai_aktual: rental.startTime,
-        sisa_waktu_menit: Math.max(0, Math.floor((akhirPeminjaman - now) / (1000 * 60)))
+        awal_peminjaman: awalPeminjaman,
+        akhir_peminjaman: akhirPeminjaman,
+        sisa_waktu_menit: Math.max(0, Math.floor((akhirPeminjaman - now) / (1000 * 60))),
+        mqtt_status: "Config sent to ESP32"
       }
     });
 
   } catch (error) {
-    res.status(500).json({ success: false, error: error.message });
+    console.error('❌ startRental Error:', error);
+    res.status(500).json({ 
+      success: false, 
+      error: error.message 
+    });
   }
 };
 

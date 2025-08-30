@@ -18,11 +18,11 @@ const sensorSchema = new mongoose.Schema({
     // Sensor specific info
     sensorId: {
         type: String,
-        required: true,
+        required: false,
     },
     sensorType: {
         type: String,
-        enum: ['suhu', 'tekanan', 'getaran', 'current', 'button', 'buzzer'],
+        enum: ['suhu', "kelembaban",'tekanan', 'getaran', 'current', 'button', 'buzzer'],
         required: true,
     },
     
