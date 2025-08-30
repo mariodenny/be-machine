@@ -1,7 +1,11 @@
 const Rental = require("../models/rentalModel");
 const countController = require("./V2/countController");
+<<<<<<< HEAD
 const {publishConfig, publishCommand} = require('../mqtt/mqttHelper')
 const mqttHelper = require('../mqtt/mqttHelper')
+=======
+const { publishConfig, publishCommand } = require('../mqtt/mqttHelper')
+>>>>>>> 7e3e1736837111624935078ff035df990a7f4d3a
 
 exports.createRental = async (req, res) => {
   try {
@@ -38,40 +42,40 @@ exports.getRentalByUserId = async (req, res) => {
       return res.status(404).json({ success: false, message: "No rentals found for this user" });
     }
 
-const result = rentals.map(rental => {
-  const start = new Date(rental.awal_peminjaman);
-  const end = new Date(rental.akhir_peminjaman);
-  const oneDayMs = 1000 * 60 * 60 * 24;
-  const days = Math.ceil(Math.abs(end - start) / oneDayMs);
+    const result = rentals.map(rental => {
+      const start = new Date(rental.awal_peminjaman);
+      const end = new Date(rental.akhir_peminjaman);
+      const oneDayMs = 1000 * 60 * 60 * 24;
+      const days = Math.ceil(Math.abs(end - start) / oneDayMs);
 
-  const mesin = rental.machineId
-    ? {
-        nama: rental.machineId.name,
-        model: rental.machineId.model,
-        deskripsi: rental.machineId.description,
-        gambar: rental.machineId.imageUrl
-      }
-    : {
-        nama: null,
-        model: null,
-        deskripsi: null,
-        gambar: null
+      const mesin = rental.machineId
+        ? {
+          nama: rental.machineId.name,
+          model: rental.machineId.model,
+          deskripsi: rental.machineId.description,
+          gambar: rental.machineId.imageUrl
+        }
+        : {
+          nama: null,
+          model: null,
+          deskripsi: null,
+          gambar: null
+        };
+
+      return {
+        id: rental._id,
+        waktuPinjam: {
+          awal: rental.awal_peminjaman,
+          akhir: rental.akhir_peminjaman,
+          jumlahHari: days
+        },
+        mesin,
+        status: rental.status,
+        isStarted: rental.isStarted,
+        isActivated: rental.isActivated,
+        createdAt: rental.createdAt
       };
-
-  return {
-    id: rental._id,
-    waktuPinjam: {
-      awal: rental.awal_peminjaman,
-      akhir: rental.akhir_peminjaman,
-      jumlahHari: days
-    },
-    mesin,
-    status: rental.status,
-    isStarted: rental.isStarted,
-    isActivated: rental.isActivated,
-    createdAt: rental.createdAt
-  };
-});
+    });
 
     res.status(200).json({ success: true, data: result });
 
@@ -261,18 +265,18 @@ exports.startRental = async (req, res) => {
 
     // Toleransi 15 menit sebelum waktu mulai
     const toleransiMulai = new Date(awalPeminjaman.getTime() - (15 * 60 * 1000));
-    
+
     if (now < toleransiMulai) {
-      return res.status(400).json({ 
-        success: false, 
-        message: `Rental belum bisa dimulai. Waktu mulai: ${awalPeminjaman.toLocaleString('id-ID')}` 
+      return res.status(400).json({
+        success: false,
+        message: `Rental belum bisa dimulai. Waktu mulai: ${awalPeminjaman.toLocaleString('id-ID')}`
       });
     }
 
     if (now > akhirPeminjaman) {
-      return res.status(400).json({ 
-        success: false, 
-        message: "Waktu rental sudah berakhir" 
+      return res.status(400).json({
+        success: false,
+        message: "Waktu rental sudah berakhir"
       });
     }
 
@@ -358,7 +362,7 @@ exports.endRental = async (req, res) => {
 
     const now = new Date();
     const waktuMulai = rental.startTime || new Date(rental.awal_peminjaman);
-    
+
     // Hitung durasi aktual
     const durasiAktualMs = now - waktuMulai;
     const durasiAktualJam = durasiAktualMs / (1000 * 60 * 60);
@@ -384,9 +388,9 @@ exports.endRental = async (req, res) => {
     await rental.populate('userId', 'name email');
     await rental.populate('machineId', 'name type model');
 
-    res.status(200).json({ 
-      success: true, 
-      message: "Rental berhasil diakhiri", 
+    res.status(200).json({
+      success: true,
+      message: "Rental berhasil diakhiri",
       data: {
         ...rental.toObject(),
         durasi_aktual: {
