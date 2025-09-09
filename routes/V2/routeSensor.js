@@ -253,4 +253,8 @@ router.get("/health/system", async (req, res) => {
     }
 });
 
+// Routes to exports
+router.get('/export/csv', sensorController.exportToCsv);
+router.get('/export/xlsx', sensorController.exportToXlsx);
+
 module.exports = router;
