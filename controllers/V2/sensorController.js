@@ -3,8 +3,32 @@ const MachineStatus = require("../../models/V2/machineStatusModel"); // New mode
 const Machine = require("../../models/machineModel");
 const { Parser } = require('json2csv');
 const ExcelJS = require('exceljs');
+// const { sendThresholdNotification } = require('./notification-threshold-service');
+const { sendThresholdNotification, checkMachineStatus } = require('../../utils/notification-treshold-service');
 
 // Legacy endpoint untuk backward compatibility
+
+async function handleNewSensorData(sensorData) {
+    try {
+        // Kirim notifikasi jika melebihi threshold
+        if (sensorData.machineId) {
+            await sendThresholdNotification(sensorData.machineId, {
+                sensorType: sensorData.sensorType,
+                value: sensorData.value,
+                unit: sensorData.unit,
+                timestamp: sensorData.waktu
+            });
+        }
+        
+        // Juga bisa simpan ke database atau processing lain
+        return true;
+    } catch (error) {
+        console.error('Error handling sensor data:', error);
+        return false;
+    }
+}
+
+
 exports.saveSensorData = async (req, res) => {
     const { machineId } = req.params;
     const { current, button, buzzerStatus } = req.body;

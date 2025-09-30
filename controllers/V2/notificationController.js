@@ -3,6 +3,8 @@ const User = require("../../models/userModel");
 const Rental = require("../../models/rentalModel");
 const Machine = require("../../models/machineModel");
 const Notification = require("../../models/V2/notificationModel");
+// const { sendThresholdNotification, checkMachineStatus } = require('../../utils/notification-treshold-service');
+const { sendThresholdNotification } = require('../../utils/notification-treshold-service');
 
 async function sendNotification(user, title, body, data = {}) {
     if (!user.fcmToken) return { success: false, message: "No FCM token" };
@@ -136,6 +138,58 @@ async function getRentalNotifications(req, res) {
     }
 }
 
+async function checkMachineStatus(req, res) {
+    try {
+        const { machineId } = req.params;
+        
+        // Dapatkan data sensor terbaru
+        const latestSensorData = await SensorV2.find({ machineId })
+            .sort({ waktu: -1 })
+            .limit(5) // 5 sensor terbaru
+            .populate("machineId");
+        
+        const results = [];
+        
+        for (const sensor of latestSensorData) {
+            const machineType = determineMachineType(sensor.machineId);
+            const thresholds = await calculateHybridThresholds(
+                machineType, 
+                sensor.sensorType, 
+                machineId
+            );
+            
+            const status = determineHybridStatus(sensor.value, thresholds);
+            
+            results.push({
+                sensorType: sensor.sensorType,
+                value: sensor.value,
+                unit: sensor.unit,
+                status: status,
+                thresholds: thresholds,
+                timestamp: sensor.waktu
+            });
+            
+            // Otomatis kirim notifikasi jika status critical/warning
+            if (status === 'Warning' || status === 'Critical') {
+                await sendThresholdNotification(machineId, {
+                    sensorType: sensor.sensorType,
+                    value: sensor.value,
+                    unit: sensor.unit
+                });
+            }
+        }
+        
+        res.json({
+            success: true,
+            machineId,
+            checks: results,
+            timestamp: new Date()
+        });
+        
+    } catch (error) {
+        res.status(500).json({ success: false, error: error.message });
+    }
+}
 module.exports = {
     sendNotification,
     checkAndSendRentalNotification,
@@ -143,4 +197,6 @@ module.exports = {
     getUserNotifications,
     updateNotificationStatus,
     getRentalNotifications,
+    sendThresholdNotification,
+    checkMachineStatus
 };
