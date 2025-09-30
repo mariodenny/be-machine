@@ -6,7 +6,7 @@ const Machine = require('../models/machineModel'); // Sesuaikan path
 // Koneksi database
 const connectDB = async () => {
     try {
-        await mongoose.connect('mongodb://127.0.0.1:27017/rental-app', {
+        await mongoose.connect('mongodb+srv://dennymarioid:pTCrww7nys6Fcv6f@cluster0.upx0mdq.mongodb.net/?retryWrites=true&w=majority&appName=Cluster0', {
             useNewUrlParser: true,
             useUnifiedTopology: true,
         });
