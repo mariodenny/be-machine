@@ -17,8 +17,6 @@ const privateKey = process.env.GOOGLE_PRIVATE_KEY
   ? process.env.GOOGLE_PRIVATE_KEY.replace(/\\n/g, "\n") 
   : null;
 
-console.log(`Private key ${privateKey}`)
-
 const oauth2Client = new google.auth.JWT(
   process.env.GOOGLE_CLIENT_EMAIL,
   null,
