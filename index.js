@@ -13,7 +13,6 @@ const path = require("path")
 
 require("dotenv").config();
 console.log("GOOGLE_PRIVATE_KEY typeof:", typeof process.env.GOOGLE_PRIVATE_KEY);
-console.log("GOOGLE_PRIVATE_KEY value:", process.env.GOOGLE_PRIVATE_KEY);
 
 const WebSocket = require("ws");
 const routeUser = require("./routes/routeAuth");
