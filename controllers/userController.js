@@ -11,15 +11,20 @@ const {
 } = require("../controllers/notificationController");
 
 const multer = require("multer");
+const { log } = require("console");
 
-// Set up Google Drive API
+const privateKey = process.env.GOOGLE_PRIVATE_KEY 
+  ? process.env.GOOGLE_PRIVATE_KEY.replace(/\\n/g, "\n") 
+  : null;
+
+console.log(`Private key ${privateKey}`)
+
 const oauth2Client = new google.auth.JWT(
-  process.env.GOOGLE_CLIENT_EMAIL || "",
+  process.env.GOOGLE_CLIENT_EMAIL,
   null,
-  (process.env.GOOGLE_PRIVATE_KEY || '').replace(/\\n/g, "\n"), 
+  privateKey,
   ["https://www.googleapis.com/auth/drive.file"]
 );
-
 const drive = google.drive({ version: "v3", auth: oauth2Client });
 
 // Multer configuration
