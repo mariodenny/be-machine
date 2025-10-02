@@ -16,7 +16,7 @@ const multer = require("multer");
 const oauth2Client = new google.auth.JWT(
   process.env.GOOGLE_CLIENT_EMAIL || "",
   null,
-  process.env.GOOGLE_PRIVATE_KEY.replace(/\\n/g, "\n"),
+  (process.env.GOOGLE_PRIVATE_KEY || '').replace(/\\n/g, "\n"), 
   ["https://www.googleapis.com/auth/drive.file"]
 );
 

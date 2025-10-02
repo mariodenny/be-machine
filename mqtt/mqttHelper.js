@@ -2,6 +2,7 @@ const mqtt = require('mqtt');
 const sensorController = require('../controllers/V2/sensorController'); // Adjust path
 const Machine = require('../models/machineModel');
 const { log } = require('console');
+const { sendThresholdNotification } = require('../utils/notification-treshold-service');
 require('dotenv').config();
 
 // HiveMQ Cloud configuration
@@ -82,6 +83,16 @@ class MqttRentalHelper {
     });
   }
 
+  getUnit(sensorType) {
+    const units = {
+        'suhu': '°C',
+        'getaran': 'mm/s',
+        'tekanan': 'bar', 
+        'current': 'A',
+        'kelembaban': '%'
+    };
+    return units[sensorType] || '';
+}
   // Handle incoming messages
   async handleMessage(topic, message) {
     try {
@@ -158,6 +169,13 @@ class MqttRentalHelper {
         unit,
         timestamp: new Date(timestamp)
       });
+
+      await sendThresholdNotification(machineId, {
+            sensorType: sensorType,
+            value: value,
+            unit: unit || this.getUnit(sensorType),
+            timestamp: new Date(timestamp)
+        });
       
       console.log(`💾 Sensor data saved to database`);
     } catch (error) {
@@ -296,5 +314,7 @@ process.on('SIGTERM', async () => {
   await mqttRentalHelper.disconnect();
   process.exit(0);
 });
+
+
 
 module.exports = mqttRentalHelper;
