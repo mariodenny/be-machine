@@ -1,8 +1,12 @@
 const mqtt = require('mqtt');
 const sensorController = require('../controllers/V2/sensorController'); // Adjust path
 const Machine = require('../models/machineModel');
-const { log } = require('console');
-const { sendThresholdNotification } = require('../utils/notification-treshold-service');
+const {
+  log
+} = require('console');
+const {
+  sendThresholdNotification
+} = require('../utils/notification-treshold-service');
 require('dotenv').config();
 
 // HiveMQ Cloud configuration
@@ -35,7 +39,7 @@ class MqttRentalHelper {
     try {
       console.log('🔗 Connecting to MQTT broker...');
       this.client = mqtt.connect(options);
-      
+
       this.client.on('connect', () => {
         this.isConnected = true;
         console.log('✅ MQTT Connected successfully!');
@@ -85,20 +89,20 @@ class MqttRentalHelper {
 
   getUnit(sensorType) {
     const units = {
-        'suhu': '°C',
-        'getaran': 'mm/s',
-        'tekanan': 'bar', 
-        'current': 'A',
-        'kelembaban': '%'
+      'suhu': '°C',
+      'getaran': 'mm/s',
+      'tekanan': 'bar',
+      'current': 'A',
+      'kelembaban': '%'
     };
     return units[sensorType] || '';
-}
+  }
   // Handle incoming messages
   async handleMessage(topic, message) {
     try {
       const messageStr = message.toString();
       const data = JSON.parse(messageStr);
-      
+
       console.log(`\n📥 Received on ${topic}:`);
       console.log(JSON.stringify(data, null, 2));
 
@@ -119,8 +123,14 @@ class MqttRentalHelper {
 
   // Handle report messages from ESP32
   async handleReportMessage(data) {
-    const { machineId, rentalId, status, message, timestamp } = data;
-    
+    const {
+      machineId,
+      rentalId,
+      status,
+      message,
+      timestamp
+    } = data;
+
     console.log(`📊 Report - Machine: ${machineId}, Rental: ${rentalId}`);
     console.log(`📊 Status: ${status}, Message: ${message}`);
 
@@ -143,8 +153,16 @@ class MqttRentalHelper {
 
   // Handle sensor data from ESP32
   async handleSensorData(data) {
-    const { machineId, rentalId, sensorId, sensorType, value, timestamp, unit } = data;
-    
+    const {
+      machineId,
+      rentalId,
+      sensorId,
+      sensorType,
+      value,
+      timestamp,
+      unit
+    } = data;
+
     console.log(`🌡️ Sensor Data - ${sensorType.toUpperCase()}: ${value}${unit}`);
     console.log(`🏷️ Machine: ${machineId}, Rental: ${rentalId}, Sensor: ${sensorId}`);
 
@@ -171,12 +189,37 @@ class MqttRentalHelper {
       });
 
       await sendThresholdNotification(machineId, {
-            sensorType: sensorType,
-            value: value,
-            unit: unit || this.getUnit(sensorType),
-            timestamp: new Date(timestamp)
+        sensorType: sensorType,
+        value: value,
+        unit: unit || this.getUnit(sensorType),
+        timestamp: new Date(timestamp)
+      });
+
+      const machine = await Machine.findById(machineId);
+      if (machine && machine.sensorThresholds) {
+        let status = 'normal';
+        if (value >= machine.sensorThresholds.warning) {
+          status = 'warning';
+
+          // Auto shutdown jika dienable
+          if (machine.sensorThresholds.autoShutdown) {
+            await emergencyShutdown(rentalId,
+              `Auto shutdown: Sensor ${sensorType} reached warning threshold (${value}${unit})`);
+          }
+        } else if (value >= machine.sensorThresholds.caution) {
+          status = 'caution';
+        }
+
+        // Update real-time status
+        await Machine.findByIdAndUpdate(machineId, {
+          $set: {
+            'realTimeStatus.sensorValue': value,
+            'realTimeStatus.status': status,
+            'realTimeStatus.lastUpdate': new Date()
+          }
         });
-      
+      }
+
       console.log(`💾 Sensor data saved to database`);
     } catch (error) {
       console.error('❌ Error saving sensor data:', error);
@@ -212,15 +255,19 @@ class MqttRentalHelper {
     };
 
     const success = this.client.publish(
-      this.topics.CONFIG, 
-      JSON.stringify(configMessage),
-      { qos: 1 }
+      this.topics.CONFIG,
+      JSON.stringify(configMessage), {
+        qos: 1
+      }
     );
 
     if (success) {
       console.log(`🚀 Rental config sent to machine ${machineId}`);
       console.log(`📤 Config:`, configMessage);
-      return { success: true, message: 'Rental configuration sent' };
+      return {
+        success: true,
+        message: 'Rental configuration sent'
+      };
     } else {
       throw new Error('Failed to send rental configuration');
     }
@@ -240,15 +287,19 @@ class MqttRentalHelper {
     };
 
     const success = this.client.publish(
-      this.topics.CONFIG, 
-      JSON.stringify(configMessage),
-      { qos: 1 }
+      this.topics.CONFIG,
+      JSON.stringify(configMessage), {
+        qos: 1
+      }
     );
 
     if (success) {
       console.log(`🛑 Stop rental sent to machine ${machineId}`);
       this.activeRentals.delete(machineId);
-      return { success: true, message: 'Stop rental sent' };
+      return {
+        success: true,
+        message: 'Stop rental sent'
+      };
     } else {
       throw new Error('Failed to send stop rental command');
     }
@@ -262,7 +313,9 @@ class MqttRentalHelper {
         ...this.activeRentals.get(machineId)
       };
     }
-    return { isActive: false };
+    return {
+      isActive: false
+    };
   }
 
   // Get all active rentals

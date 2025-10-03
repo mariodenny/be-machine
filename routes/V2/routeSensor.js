@@ -257,4 +257,8 @@ router.get("/health/system", async (req, res) => {
 router.get('/export/csv', sensorController.exportToCsv);
 router.get('/export/xlsx', sensorController.exportToXlsx);
 
+
+router.get('/:machineId/check-delay', sensorController.checkSystemDelay);
+router.get('/:machineId/export-with-delay', sensorController.exportSensorDataWithDelay);
+
 module.exports = router;

@@ -1,6 +1,7 @@
 const Rental = require("../../models/rentalModel");
 const Count = require("../../models/V2/countModel");
-const Machine = require("../../models/machineModel")
+const Machine = require("../../models/machineModel");
+const { log } = require("console");
 
 exports.updateRentalCount = async () => {
   const machines = await Machine.find();
@@ -25,6 +26,7 @@ exports.updateRentalCount = async () => {
 exports.getAllCounts = async (req, res) => {
     try {
         const counts = await Count.find().sort({ waktu: -1 });
+        console.log(`Counts ${counts}`)
         res.status(200).json({ success: true, data: counts });
     } catch (error) {
         res.status(500).json({ success: false, error: error.message });

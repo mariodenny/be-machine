@@ -401,3 +401,140 @@ exports.endRental = async (req, res) => {
     res.status(500).json({ success: false, error: error.message });
   }
 };
+
+exports.emergencyShutdown = async (req, res) => {
+  try {
+    const { rentalId } = req.params;
+    const { reason } = req.body;
+
+    // Cari rental aktif
+    const rental = await Rental.findOne({
+      _id: rentalId,
+      status: 'Disetujui',
+      isStarted: true
+    }).populate('machineId');
+
+    if (!rental) {
+      return res.status(404).json({ error: 'Active rental not found' });
+    }
+
+    // Update status rental & mesin
+    rental.status = 'Dihentikan';
+    rental.shutdownReason = reason || 'Emergency shutdown by system';
+    rental.shutdownAt = new Date();
+    await rental.save();
+
+    // Update status mesin
+    await Machine.findByIdAndUpdate(rental.machineId, {
+      $set: {
+        'realTimeStatus.status': 'critical',
+        'realTimeStatus.lastUpdate': new Date()
+      }
+    });
+
+    // Kirim perintah shutdown ke ESP (via MQTT)
+    await mqttRentalHelper.stopRental(rental.machineId._id, rentalId);
+
+    // Kirim notifikasi ke user
+    await sendNotification(
+      rental.userId,
+      '🚨 EMERGENCY SHUTDOWN',
+      `Mesin ${rental.machineId.name} dihentikan karena: ${reason}`,
+      { 
+        rentalId: rental._id.toString(),
+        type: 'emergency_shutdown',
+        machineId: rental.machineId._id.toString()
+      }
+    );
+
+    res.json({
+      success: true,
+      message: 'Emergency shutdown executed',
+      data: rental
+    });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+};
+
+exports.checkSystemDelay = async (req, res) => {
+  try {
+    const { machineId } = req.params;
+    
+    // Test timing dari ESP ke MongoDB ke Response
+    const testStart = Date.now();
+    
+    // Simpan test data
+    const testSensor = await SensorV2.create({
+      machineId,
+      sensorType: 'delay_test',
+      value: 99.99,
+      unit: 'ms',
+      deviceTimestamp: Date.now(),
+      waktu: new Date()
+    });
+    
+    const dbWriteTime = Date.now() - testStart;
+    
+    // Query data terbaru
+    const latestData = await SensorV2.findOne({
+      machineId,
+      sensorType: 'delay_test'
+    }).sort({ waktu: -1 });
+    
+    const totalDelay = Date.now() - testStart;
+    
+    res.json({
+      success: true,
+      data: {
+        testId: testSensor._id,
+        dbWriteTime: `${dbWriteTime}ms`,
+        totalSystemDelay: `${totalDelay}ms`,
+        timestamp: new Date().toISOString(),
+        recommendation: totalDelay > 1000 ? 'High latency detected' : 'System responsive'
+      }
+    });
+    
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+};
+
+exports.exportSensorDataWithDelay = async (req, res) => {
+  try {
+    const { machineId, startDate, endDate } = req.query;
+    
+    // Include delay information in export
+    const sensorData = await SensorV2.find({
+      machineId,
+      waktu: {
+        $gte: new Date(startDate),
+        $lte: new Date(endDate)
+      }
+    }).populate('machineId').sort({ waktu: -1 });
+    
+    // Calculate processing delays for each record
+    const dataWithDelay = sensorData.map(record => ({
+      Timestamp: record.waktu,
+      'ID Mesin': record.machineId?.name || 'N/A',
+      Sensor: record.sensorType,
+      Value: record.value,
+      Unit: record.unit,
+      'Processing Delay (ms)': record.deviceTimestamp ? 
+        (new Date(record.waktu) - new Date(record.deviceTimestamp)) : 'N/A',
+      'Data Quality': record.deviceTimestamp && 
+        (new Date(record.waktu) - new Date(record.deviceTimestamp)) < 5000 ? 'Good' : 'Delayed'
+    }));
+    
+    // Export ke CSV (pakai function yang sudah ada)
+    const csv = convertToCsv(dataWithDelay);
+    
+    res.setHeader('Content-Type', 'text/csv');
+    res.setHeader('Content-Disposition', 
+      `attachment; filename=sensor-data-with-delay-${machineId}.csv`);
+    res.send(csv);
+    
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+};

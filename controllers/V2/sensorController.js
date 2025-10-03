@@ -652,3 +652,116 @@ exports.exportToXlsx = async (req, res) => {
     res.status(500).json({ error: error.message });
   }
 };
+
+
+exports.checkSystemDelay = async (req, res) => {
+  try {
+    const { machineId } = req.params;
+    
+    // Test timing dari ESP ke MongoDB ke Response
+    const testStart = Date.now();
+    
+    // Simpan test data
+    const testSensor = await SensorV2.create({
+      machineId,
+      sensorType: 'delay_test',
+      value: 99.99,
+      unit: 'ms',
+      deviceTimestamp: Date.now(),
+      waktu: new Date()
+    });
+    
+    const dbWriteTime = Date.now() - testStart;
+    
+    // Query data terbaru
+    const latestData = await SensorV2.findOne({
+      machineId,
+      sensorType: 'delay_test'
+    }).sort({ waktu: -1 });
+    
+    const totalDelay = Date.now() - testStart;
+    
+    res.json({
+      success: true,
+      data: {
+        testId: testSensor._id,
+        dbWriteTime: `${dbWriteTime}ms`,
+        totalSystemDelay: `${totalDelay}ms`,
+        timestamp: new Date().toISOString(),
+        recommendation: totalDelay > 1000 ? 'High latency detected' : 'System responsive'
+      }
+    });
+    
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+};
+
+exports.exportSensorDataWithDelay = async (req, res) => {
+  try {
+    const { machineId } = req.params;
+    const { startDate, endDate } = req.query;
+    
+    // Build filter
+    let filter = { machineId };
+    if (startDate && endDate) {
+      filter.waktu = {
+        $gte: new Date(startDate),
+        $lte: new Date(endDate)
+      };
+    }
+    
+    const sensorData = await SensorV2.find(filter)
+      .populate('machineId')
+      .sort({ waktu: -1 });
+    
+    if (!sensorData.length) {
+      return res.status(404).json({ message: 'No data found' });
+    }
+    
+    // Calculate processing delays for each record
+    const dataWithDelay = sensorData.map(record => ({
+      Timestamp: record.waktu,
+      'ID Mesin': record.machineId?.name || 'N/A',
+      Sensor: record.sensorType,
+      Value: record.value,
+      Unit: record.unit,
+      'Processing Delay (ms)': record.deviceTimestamp ? 
+        (new Date(record.waktu) - new Date(record.deviceTimestamp)) : 'N/A',
+      'Data Quality': record.deviceTimestamp && 
+        (new Date(record.waktu) - new Date(record.deviceTimestamp)) < 5000 ? 'Good' : 'Delayed'
+    }));
+    
+    // Convert to CSV
+    const csv = convertToCsv(dataWithDelay);
+    
+    res.setHeader('Content-Type', 'text/csv');
+    res.setHeader('Content-Disposition', 
+      `attachment; filename=sensor-data-with-delay-${machineId}.csv`);
+    res.send(csv);
+    
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+};
+
+// Helper function untuk CSV
+const convertToCsv = (data) => {
+  if (!data.length) return '';
+  
+  const headers = Object.keys(data[0]);
+  let csv = headers.join(',') + '\n';
+  
+  data.forEach(item => {
+    const row = headers.map(header => {
+      let value = item[header] || '';
+      if (typeof value === 'string' && (value.includes(',') || value.includes('"'))) {
+        value = `"${value.replace(/"/g, '""')}"`;
+      }
+      return value;
+    });
+    csv += row.join(',') + '\n';
+  });
+  
+  return csv;
+};
