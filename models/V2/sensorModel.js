@@ -22,7 +22,7 @@ const sensorSchema = new mongoose.Schema({
     },
     sensorType: {
         type: String,
-        enum: ['suhu', "kelembaban",'tekanan', 'getaran', 'current', 'button', 'buzzer'],
+        enum: ['suhu', "kelembaban", 'tekanan', 'getaran', 'current', 'button', 'buzzer', 'delay_test'], // TAMBAH 'delay_test'
         required: true,
     },
     
@@ -41,6 +41,7 @@ const sensorSchema = new mongoose.Schema({
                 case 'current': return 'A';
                 case 'button': return 'state';
                 case 'buzzer': return 'state';
+                case 'delay_test': return 'ms'; // TAMBAH UNIT UNTUK DELAY_TEST
                 default: return '';
             }
         }
@@ -132,7 +133,7 @@ sensorSchema.virtual('displayValue').get(function() {
     return `${this.value}${this.unit}`;
 });
 
-// Method untuk validasi nilai sensor
+// Method untuk validasi nilai sensor - UPDATE UNTUK DELAY_TEST
 sensorSchema.methods.validateValue = function() {
     switch(this.sensorType) {
         case 'suhu':
@@ -143,6 +144,8 @@ sensorSchema.methods.validateValue = function() {
             return this.value >= 0 && this.value <= 1;
         case 'current':
             return this.value >= 0 && this.value <= 100;
+        case 'delay_test': // TAMBAH VALIDASI UNTUK DELAY_TEST
+            return this.value >= 0 && this.value <= 10000; // delay dalam ms, max 10 detik
         default:
             return true;
     }

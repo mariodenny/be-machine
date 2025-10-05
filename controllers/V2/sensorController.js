@@ -662,7 +662,7 @@ exports.checkSystemDelay = async (req, res) => {
     const testStart = Date.now();
     
     // Simpan test data
-    const testSensor = await SensorV2.create({
+    const testSensor = await Sensor.create({
       machineId,
       sensorType: 'delay_test',
       value: 99.99,
@@ -674,7 +674,7 @@ exports.checkSystemDelay = async (req, res) => {
     const dbWriteTime = Date.now() - testStart;
     
     // Query data terbaru
-    const latestData = await SensorV2.findOne({
+    const latestData = await Sensor.findOne({
       machineId,
       sensorType: 'delay_test'
     }).sort({ waktu: -1 });
@@ -711,7 +711,7 @@ exports.exportSensorDataWithDelay = async (req, res) => {
       };
     }
     
-    const sensorData = await SensorV2.find(filter)
+    const sensorData = await Sensor.find(filter)
       .populate('machineId')
       .sort({ waktu: -1 });
     
