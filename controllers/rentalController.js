@@ -306,20 +306,11 @@ exports.startRental = async (req, res) => {
     } catch (mqttError) {
       console.error("❌ MQTT Error:", mqttError.message);
       
-      // Tetap lanjutkan rental tapi beri warning
       console.warn('⚠️ Rental started but MQTT config failed. ESP32 might not receive config.');
       
-      // Optional: Revert rental status jika MQTT critical
-      // rental.isStarted = false;
-      // rental.startTime = null;
-      // await rental.save();
-      // return res.status(500).json({
-      //   success: false,
-      //   message: "Rental gagal dimulai: MQTT connection error"
-      // });
+ 
     }
 
-    // Return response dengan data yang sudah di-populated
     res.status(200).json({ 
       success: true, 
       message: "Rental berhasil dimulai", 
@@ -538,3 +529,5 @@ exports.exportSensorDataWithDelay = async (req, res) => {
     res.status(500).json({ error: error.message });
   }
 };
+
+// extend rental , 5 menit ,15 menit, 30 menit -> hanya 3 opsi ini

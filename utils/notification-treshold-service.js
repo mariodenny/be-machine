@@ -1,11 +1,10 @@
-// notification-threshold-service.js
 const admin = require("firebase-admin");
 const User = require("../models/userModel");
 const Rental = require("../models/rentalModel");
 const Machine = require("../models/machineModel");
 
 const SensorV2 = require("../models/V2/sensorModel");
-const Notification = require("../models/V2/notificationModel");
+const Notification = require("../models/notificationModel");
 const { calculateHybridThresholds } = require('./ml-treshold');
 
 
@@ -98,15 +97,15 @@ function getNotificationContent(machine, sensorData, status, thresholds) {
     
     const templates = {
         'Caution': {
-            title: `⚠️ Perhatian: ${machineName}`,
+            title: `⚠️ Caution: ${machineName}`,
             body: `${sensorData.sensorType} ${value}${unit} - Mendekati batas aman (Batas: ${thresholds.warning}${unit})`
         },
         'Warning': {
-            title: `🚨 Peringatan: ${machineName}`,
+            title: `🚨 Warning: ${machineName}`,
             body: `${sensorData.sensorType} ${value}${unit} - Melebihi batas warning! (Batas: ${thresholds.warning}${unit})`
         },
         'Critical': {
-            title: `🔥 CRITICAL: ${machineName}`,
+            title: `🔥 Danger: ${machineName}`,
             body: `${sensorData.sensorType} ${value}${unit} - DANGER! Melebihi batas kritis! (Batas: ${thresholds.critical}${unit})`
         }
     };
