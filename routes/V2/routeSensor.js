@@ -27,6 +27,11 @@ router.get("/sensors/:machineId/live", sensorController.getLiveStatus);
 // Dashboard overview untuk semua machines
 router.get("/dashboard/overview", sensorController.getAllMachinesStatus);
 
+
+
+// get sensor live data by rental id
+router.get('/sensors/rental/:rentalId/live', sensorController.getLiveStatusByRental)
+
 // ========== MQTT CONTROL ROUTES ==========
 
 // Send config ke ESP32

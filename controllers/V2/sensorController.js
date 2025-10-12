@@ -3,6 +3,9 @@ const MachineStatus = require("../../models/V2/machineStatusModel"); // New mode
 const Machine = require("../../models/machineModel");
 const { Parser } = require('json2csv');
 const ExcelJS = require('exceljs');
+const Rental = require('../../models/rentalModel')
+
+
 // const { sendThresholdNotification } = require('./notification-threshold-service');
 const { sendThresholdNotification, checkMachineStatus } = require('../../utils/notification-treshold-service');
 
@@ -14,7 +17,7 @@ async function handleNewSensorData(sensorData) {
         if (sensorData.machineId) {
             await sendThresholdNotification(sensorData.machineId, {
                 sensorType: sensorData.sensorType,
-                value: sensorData.value,
+              value: sensorData.value,
                 unit: sensorData.unit,
                 timestamp: sensorData.waktu
             });
@@ -326,48 +329,6 @@ exports.getRecentSensorData = async (req, res) => {
             timeRange: `${minutes} minutes`,
             sensorType: sensorType || 'all',
             count: sensors.length
-        });
-    } catch (err) {
-        res.status(500).json({ success: false, error: err.message });
-    }
-};
-
-// Enhanced live status dengan semua sensor types
-exports.getLiveStatus = async (req, res) => {
-    const { machineId } = req.params;
-
-    try {
-        // Get machine status
-        const machineStatus = await MachineStatus.findOne({ machineId });
-
-        // Get latest sensors
-        const sensorTypes = ['suhu', 'tekanan', 'getaran', 'current', 'button', 'buzzer'];
-        const sensors = {};
-
-        for (const type of sensorTypes) {
-            const sensor = await Sensor.findOne({
-                machineId,
-                sensorType: type
-            }).sort({ waktu: -1 });
-
-            if (sensor) {
-                sensors[type] = {
-                    value: sensor.value,
-                    displayValue: sensor.displayValue,
-                    timestamp: sensor.waktu,
-                    isValid: sensor.isValid,
-                };
-            }
-        }
-
-        res.json({
-            success: true,
-            data: {
-                machineStatus: machineStatus || null,
-                sensors,
-                isOnline: machineStatus?.isOnline || false,
-                lastSeen: machineStatus?.lastSeen,
-            }
         });
     } catch (err) {
         res.status(500).json({ success: false, error: err.message });
@@ -765,3 +726,379 @@ const convertToCsv = (data) => {
   
   return csv;
 };
+
+// Enhanced live status dengan semua sensor types + rental context + ESP connection check
+exports.getLiveStatus = async (req, res) => {
+    const { machineId, rentalId } = req.params; // Tambah rentalId sebagai optional
+
+    try {
+        // 1. Get machine basic info
+        const machine = await Machine.findById(machineId);
+        if (!machine) {
+            return res.status(404).json({ 
+                success: false, 
+                message: "Machine not found" 
+            });
+        }
+
+        // 2. Jika ada rentalId, validasi rental
+        let rentalInfo = null;
+        if (rentalId) {
+            rentalInfo = await Rental.findOne({
+                _id: rentalId,
+                machineId: machineId,
+                status: "Disetujui"
+            }).populate("userId", "name email");
+            
+            if (!rentalInfo) {
+                return res.status(404).json({
+                    success: false,
+                    message: "Active rental not found for this machine"
+                });
+            }
+        }
+
+        // 3. Get machine status (jika ada model MachineStatus)
+        const machineStatus = await MachineStatus.findOne({ machineId });
+
+        // 4. Get latest sensors data dengan ESP connection check
+        const sensorTypes = ['suhu', 'tekanan', 'getaran', 'current', 'button', 'buzzer'];
+        const sensors = {};
+        let lastDataTime = null;
+
+        for (const type of sensorTypes) {
+            const sensor = await Sensor.findOne({
+                machineId,
+                sensorType: type
+            }).sort({ waktu: -1 });
+
+            if (sensor) {
+                // Update lastDataTime
+                if (!lastDataTime || sensor.waktu > lastDataTime) {
+                    lastDataTime = sensor.waktu;
+                }
+
+                // Calculate status based on thresholds
+                const status = calculateSensorStatus(type, sensor.value, machine.sensorThresholds);
+                
+                sensors[type] = {
+                    value: sensor.value,
+                    displayValue: sensor.displayValue || `${sensor.value}${sensor.unit}`,
+                    unit: sensor.unit,
+                    timestamp: sensor.waktu,
+                    isValid: sensor.isValid,
+                    status: status, // normal, caution, warning
+                    color: getStatusColor(status), // untuk Flutter
+                    thresholdInfo: getThresholdInfo(type, sensor.value, machine.sensorThresholds)
+                };
+            } else {
+                // Sensor tidak ada data
+                sensors[type] = {
+                    value: null,
+                    displayValue: "No data",
+                    unit: "",
+                    timestamp: null,
+                    isValid: false,
+                    status: "no_data",
+                    color: "#9CA3AF", // gray
+                    thresholdInfo: "No sensor data available"
+                };
+            }
+        }
+
+        // 5. Check ESP connection status
+        const espStatus = await checkESPConnectionStatus(machineId, lastDataTime);
+        
+        // 6. Get real-time status dari machine
+        const realTimeStatus = machine.realTimeStatus || {
+            sensorValue: 0,
+            status: "disconnected",
+            lastUpdate: new Date()
+        };
+
+        // 7. Prepare response
+        const response = {
+            success: true,
+            data: {
+                machine: {
+                    id: machine._id,
+                    name: machine.name,
+                    type: machine.type,
+                    status: machine.status,
+                    imageUrl: machine.imageUrl
+                },
+                rental: rentalInfo ? {
+                    id: rentalInfo._id,
+                    user: rentalInfo.userId ? {
+                        name: rentalInfo.userId.name,
+                        email: rentalInfo.userId.email
+                    } : null,
+                    startTime: rentalInfo.startTime,
+                    endTime: rentalInfo.endTime,
+                    status: rentalInfo.status,
+                    isStarted: rentalInfo.isStarted
+                } : null,
+                connection: {
+                    espConnected: espStatus.connected,
+                    status: espStatus.status, // connected, disconnected, stale
+                    lastDataReceived: lastDataTime,
+                    timeSinceLastData: espStatus.timeSinceLastData,
+                    message: espStatus.message
+                },
+                sensors,
+                realTimeStatus: {
+                    ...realTimeStatus,
+                    color: getStatusColor(realTimeStatus.status)
+                },
+                thresholds: machine.sensorThresholds,
+                machineStatus: machineStatus || null,
+                lastUpdated: new Date()
+            }
+        };
+
+        res.json(response);
+
+    } catch (err) {
+        console.error('Error in getLiveStatus:', err);
+        res.status(500).json({ 
+            success: false, 
+            error: err.message,
+            message: "Failed to get live status" 
+        });
+    }
+};
+
+
+const checkESPConnectionStatus = async (machineId, lastDataTime) => {
+    const now = new Date();
+    const twoMinutesAgo = new Date(now.getTime() - 2 * 60 * 1000);
+    const fiveMinutesAgo = new Date(now.getTime() - 5 * 60 * 1000);
+
+    if (!lastDataTime) {
+        return {
+            connected: false,
+            status: "disconnected",
+            timeSinceLastData: null,
+            message: "ESP tidak terkoneksi - Tidak ada data diterima"
+        };
+    }
+
+    const timeSinceLastData = now.getTime() - new Date(lastDataTime).getTime();
+    
+    if (lastDataTime > twoMinutesAgo) {
+        return {
+            connected: true,
+            status: "connected",
+            timeSinceLastData: timeSinceLastData,
+            message: "ESP terkoneksi dengan baik"
+        };
+    } else if (lastDataTime > fiveMinutesAgo) {
+        return {
+            connected: true,
+            status: "stale",
+            timeSinceLastData: timeSinceLastData,
+            message: "ESP terkoneksi tetapi data tertunda"
+        };
+    } else {
+        return {
+            connected: false,
+            status: "disconnected", 
+            timeSinceLastData: timeSinceLastData,
+            message: "ESP tidak terkoneksi - Tidak ada data dalam 5 menit terakhir"
+        };
+    }
+};
+
+const calculateSensorStatus = (sensorType, value, thresholds) => {
+    if (value === null || value === undefined) return "no_data";
+    if (!thresholds) return "normal";
+
+    // Default thresholds jika tidak ada di machine
+    const defaultThresholds = {
+        suhu: { caution: 70, warning: 85 },
+        tekanan: { caution: 6.5, warning: 7.5 },
+        getaran: { caution: 2.0, warning: 3.0 },
+        current: { caution: 60, warning: 80 }
+    };
+
+    const sensorThresholds = thresholds[sensorType] || defaultThresholds[sensorType];
+    if (!sensorThresholds) return "normal";
+
+    if (value >= sensorThresholds.warning) return "warning";
+    if (value >= sensorThresholds.caution) return "caution";
+    return "normal";
+};
+
+const getStatusColor = (status) => {
+    const colors = {
+        normal: "#10B981",    // green
+        caution: "#F59E0B",   // yellow  
+        warning: "#EF4444",   // red
+        critical: "#DC2626",  // dark red
+        disconnected: "#6B7280", // gray
+        no_data: "#9CA3AF",   // light gray
+        stale: "#F97316"      // orange
+    };
+    return colors[status] || "#6B7280";
+};
+
+const getThresholdInfo = (sensorType, value, thresholds) => {
+    if (!thresholds) return "No thresholds set";
+    
+    const sensorThresholds = thresholds[sensorType];
+    if (!sensorThresholds) return "No thresholds for this sensor";
+
+    if (value >= sensorThresholds.warning) {
+        return `⚠️ WARNING: Melebihi batas ${sensorThresholds.warning}`;
+    } else if (value >= sensorThresholds.caution) {
+        return `⚠️ CAUTION: Mendekati batas ${sensorThresholds.warning}`;
+    } else {
+        return `✅ NORMAL: Dalam batas aman`;
+    }
+};
+
+
+exports.getLiveStatusByRental = async (req, res) => {
+    const { rentalId } = req.params;
+    
+    try {
+        // 1. Dapatkan rental info
+        const rental = await Rental.findOne({
+            _id: rentalId,
+            status: "Disetujui"
+        }).populate("machineId userId");
+        
+        if (!rental) {
+            return res.status(404).json({
+                success: false,
+                message: "Rental not found or not active"
+            });
+        }
+
+        const machineId = rental.machineId._id;
+        
+        const liveStatus = await getLiveStatusData(machineId, rentalId);
+        
+        liveStatus.data.rental = {
+            id: rental._id,
+            user: {
+                name: rental.userId.name,
+                email: rental.userId.email
+            },
+            startTime: rental.startTime,
+            endTime: rental.endTime,
+            status: rental.status,
+            isStarted: rental.isStarted
+        };
+        
+        res.json(liveStatus);
+        
+    } catch (error) {
+        res.status(500).json({ success: false, error: error.message });
+    }
+};
+// ✅ COMMON FUNCTION untuk kedua approach (by machineId dan by rentalId)
+const getLiveStatusData = async (machineId, rentalId = null) => {
+    try {
+        // 1. Get machine basic info
+        const machine = await Machine.findById(machineId);
+        if (!machine) {
+            throw new Error("Machine not found");
+        }
+
+        // 2. Get latest sensors data dengan ESP connection check
+        const sensorTypes = ['suhu', 'tekanan', 'getaran', 'current', 'button', 'buzzer'];
+        const sensors = {};
+        let lastDataTime = null;
+
+        for (const type of sensorTypes) {
+            const sensor = await Sensor.findOne({
+                machineId,
+                sensorType: type
+            }).sort({ waktu: -1 });
+
+            if (sensor) {
+                // Update lastDataTime
+                if (!lastDataTime || sensor.waktu > lastDataTime) {
+                    lastDataTime = sensor.waktu;
+                }
+
+                // Calculate status based on thresholds
+                const status = calculateSensorStatus(type, sensor.value, machine.sensorThresholds);
+                
+                sensors[type] = {
+                    value: sensor.value,
+                    displayValue: sensor.displayValue || `${sensor.value}${sensor.unit}`,
+                    unit: sensor.unit,
+                    timestamp: sensor.waktu,
+                    isValid: sensor.isValid,
+                    status: status, // normal, caution, warning
+                    color: getStatusColor(status), // untuk Flutter
+                    thresholdInfo: getThresholdInfo(type, sensor.value, machine.sensorThresholds)
+                };
+            } else {
+                // Sensor tidak ada data
+                sensors[type] = {
+                    value: null,
+                    displayValue: "No data",
+                    unit: "",
+                    timestamp: null,
+                    isValid: false,
+                    status: "no_data",
+                    color: "#9CA3AF", // gray
+                    thresholdInfo: "No sensor data available"
+                };
+            }
+        }
+
+        // 3. Check ESP connection status
+        const espStatus = await checkESPConnectionStatus(machineId, lastDataTime);
+        
+        // 4. Get real-time status dari machine
+        const realTimeStatus = machine.realTimeStatus || {
+            sensorValue: 0,
+            status: "disconnected",
+            lastUpdate: new Date()
+        };
+
+        // 5. Get machine status (jika ada model MachineStatus)
+        const machineStatus = await MachineStatus.findOne({ machineId });
+
+        // 6. Prepare base response
+        const response = {
+            success: true,
+            data: {
+                machine: {
+                    id: machine._id,
+                    name: machine.name,
+                    type: machine.type,
+                    status: machine.status,
+                    imageUrl: machine.imageUrl,
+                    esp_address: machine.esp_address
+                },
+                sensors,
+                connection: {
+                    espConnected: espStatus.connected,
+                    status: espStatus.status, // connected, disconnected, stale
+                    lastDataReceived: lastDataTime,
+                    timeSinceLastData: espStatus.timeSinceLastData,
+                    message: espStatus.message
+                },
+                realTimeStatus: {
+                    ...realTimeStatus,
+                    color: getStatusColor(realTimeStatus.status)
+                },
+                thresholds: machine.sensorThresholds,
+                machineStatus: machineStatus || null,
+                lastUpdated: new Date()
+            }
+        };
+
+        return response;
+
+    } catch (error) {
+        console.error('Error in getLiveStatusData:', error);
+        throw error;
+    }
+};
+

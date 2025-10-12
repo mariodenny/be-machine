@@ -18,7 +18,7 @@ const sensorSchema = new mongoose.Schema({
     // Sensor specific info
     sensorId: {
         type: String,
-        required: false,
+        required: false,    
     },
     sensorType: {
         type: String,
