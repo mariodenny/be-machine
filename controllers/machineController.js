@@ -20,7 +20,7 @@ exports.getMachineById = async (req, res) => {
 // CREATE machine
 exports.createMachine = async (req, res) => {
   try {
-    const { name, type, model, description, sensor, esp_address } = req.body;
+    const { name, type, model, description, sensor } = req.body;
     if (!name || !type || !model) {
       return res.status(400).json({ success: false, message: "Missing required fields" });
     }
@@ -36,7 +36,6 @@ exports.createMachine = async (req, res) => {
       model,
       description,
       sensor,
-      esp_address,
       imageUrl
     });
 

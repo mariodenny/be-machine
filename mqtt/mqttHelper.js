@@ -1,12 +1,7 @@
 const mqtt = require('mqtt');
-const sensorController = require('../controllers/V2/sensorController'); // Adjust path
+const sensorController = require('../controllers/V2/sensorController');
 const Machine = require('../models/machineModel');
-const {
-  log
-} = require('console');
-const {
-  sendThresholdNotification
-} = require('../utils/notification-treshold-service');
+const { sendThresholdNotification } = require('../utils/notification-treshold-service');
 require('dotenv').config();
 
 // HiveMQ Cloud configuration
@@ -26,12 +21,8 @@ class MqttRentalHelper {
   constructor() {
     this.client = null;
     this.isConnected = false;
-    this.activeRentals = new Map(); // Store active rental info
-    this.topics = {
-      CONFIG: 'rental/config',
-      REPORT: 'rental/report',
-      SENSOR_DATA: 'rental/sensor/data'
-    };
+    this.activeRentals = new Map();
+    this.espConnections = new Map();
   }
 
   // Initialize MQTT connection
@@ -69,11 +60,12 @@ class MqttRentalHelper {
     }
   }
 
-  // Subscribe to necessary topics
   subscribeToTopics() {
     const topicsToSubscribe = [
-      this.topics.REPORT,
-      this.topics.SENSOR_DATA
+      'machine/+/heartbeat', 
+      'machine/+/connection', 
+      'machine/+/report',     
+      'sensor/+/data'        
     ];
 
     topicsToSubscribe.forEach(topic => {
@@ -87,16 +79,6 @@ class MqttRentalHelper {
     });
   }
 
-  getUnit(sensorType) {
-    const units = {
-      'suhu': '°C',
-      'getaran': 'mm/s',
-      'tekanan': 'bar',
-      'current': 'A',
-      'kelembaban': '%'
-    };
-    return units[sensorType] || '';
-  }
   // Handle incoming messages
   async handleMessage(topic, message) {
     try {
@@ -106,30 +88,79 @@ class MqttRentalHelper {
       console.log(`\n📥 Received on ${topic}:`);
       console.log(JSON.stringify(data, null, 2));
 
-      switch (topic) {
-        case this.topics.REPORT:
-          await this.handleReportMessage(data);
-          break;
-        case this.topics.SENSOR_DATA:
-          await this.handleSensorData(data);
-          break;
-        default:
-          console.log(`❓ Unknown topic: ${topic}`);
+      // Extract chipId from topic
+      const topicParts = topic.split('/');
+      const chipId = topicParts[1];
+
+      // Handle different message types
+      if (topic.includes('/heartbeat')) {
+        await this.handleHeartbeat(chipId, data);
+      } else if (topic.includes('/connection')) {
+        await this.handleConnection(chipId, data);
+      } else if (topic.includes('/report')) {
+        await this.handleReportMessage(data);
+      } else if (topic.includes('/data')) {
+        await this.handleSensorData(data);
+      } else {
+        console.log(`❓ Unknown topic: ${topic}`);
       }
     } catch (error) {
       console.error('❌ Error handling message:', error);
     }
   }
 
+  // NEW: Handle heartbeat untuk track ESP online status
+  async handleHeartbeat(chipId, data) {
+    console.log(`💓 Heartbeat from ${chipId}`);
+    
+    // Update ESP connection tracking
+    this.espConnections.set(chipId, {
+      lastSeen: new Date(),
+      machineId: data.machineId || null,
+      isStarted: data.isStarted || false,
+      systemReady: data.systemReady || false,
+      ip: data.ip,
+      rssi: data.rssi
+    });
+
+    // Jika machineId ada di heartbeat, update active rentals
+    if (data.machineId && data.isStarted) {
+      this.activeRentals.set(data.machineId, {
+        rentalId: data.rentalId || null,
+        chipId: chipId,
+        startTime: new Date(),
+        lastActivity: new Date()
+      });
+    }
+  }
+
+  // NEW: Handle connection status
+  async handleConnection(chipId, data) {
+    console.log(`📡 Connection status from ${chipId}: ${data.status}`);
+    
+    if (data.status === 'online') {
+      this.espConnections.set(chipId, {
+        lastSeen: new Date(),
+        machineId: null, // Belum ada machineId
+        isStarted: false,
+        systemReady: data.systemReady || false,
+        ip: data.ip,
+        rssi: data.rssi
+      });
+    } else if (data.status === 'offline') {
+      // Cari dan hapus dari active rentals jika ada
+      for (let [machineId, rental] of this.activeRentals) {
+        if (rental.chipId === chipId) {
+          this.activeRentals.delete(machineId);
+          console.log(`🛑 Removed rental for machine ${machineId} (ESP ${chipId} offline)`);
+        }
+      }
+    }
+  }
+
   // Handle report messages from ESP32
   async handleReportMessage(data) {
-    const {
-      machineId,
-      rentalId,
-      status,
-      message,
-      timestamp
-    } = data;
+    const { machineId, rentalId, status, message, timestamp } = data;
 
     console.log(`📊 Report - Machine: ${machineId}, Rental: ${rentalId}`);
     console.log(`📊 Status: ${status}, Message: ${message}`);
@@ -138,6 +169,7 @@ class MqttRentalHelper {
     if (status === 'success' && message.includes('started')) {
       this.activeRentals.set(machineId, {
         rentalId,
+        chipId: data.chipId,
         startTime: new Date(),
         lastActivity: new Date()
       });
@@ -146,22 +178,11 @@ class MqttRentalHelper {
       this.activeRentals.delete(machineId);
       console.log(`🛑 Rental for machine ${machineId} stopped`);
     }
-
-    // TODO: Save to database if needed
-    // await this.saveReportToDatabase(data);
   }
 
   // Handle sensor data from ESP32
   async handleSensorData(data) {
-    const {
-      machineId,
-      rentalId,
-      sensorId,
-      sensorType,
-      value,
-      timestamp,
-      unit
-    } = data;
+    const { machineId, rentalId, sensorId, sensorType, value, timestamp, unit } = data;
 
     console.log(`🌡️ Sensor Data - ${sensorType.toUpperCase()}: ${value}${unit}`);
     console.log(`🏷️ Machine: ${machineId}, Rental: ${rentalId}, Sensor: ${sensorId}`);
@@ -177,7 +198,7 @@ class MqttRentalHelper {
     rental.lastActivity = new Date();
 
     try {
-      // Save sensor data using your MQTT-specific function
+      // Save sensor data
       await sensorController.saveSensorDataFromMQTT({
         machineId,
         rentalId,
@@ -200,17 +221,14 @@ class MqttRentalHelper {
         let status = 'normal';
         if (value >= machine.sensorThresholds.warning) {
           status = 'warning';
-
-          // Auto shutdown jika dienable
           if (machine.sensorThresholds.autoShutdown) {
-            await emergencyShutdown(rentalId,
+            await this.emergencyShutdown(rentalId,
               `Auto shutdown: Sensor ${sensorType} reached warning threshold (${value}${unit})`);
           }
         } else if (value >= machine.sensorThresholds.caution) {
           status = 'caution';
         }
 
-        // Update real-time status
         await Machine.findByIdAndUpdate(machineId, {
           $set: {
             'realTimeStatus.sensorValue': value,
@@ -226,82 +244,174 @@ class MqttRentalHelper {
     }
   }
 
-  // Send rental configuration to ESP32
+  getUnit(sensorType) {
+    const units = {
+      'suhu': '°C',
+      'getaran': 'mm/s',
+      'tekanan': 'bar',
+      'current': 'A',
+      'kelembaban': '%'
+    };
+    return units[sensorType] || '';
+  }
+
+  // NEW: Cari chipId yang tersedia (ESP online tanpa rental aktif)
+  findAvailableESP() {
+    const available = [];
+    for (let [chipId, esp] of this.espConnections) {
+      // ESP online dan tidak memiliki machineId (belum dipakai)
+      if (!esp.machineId && esp.systemReady) {
+        available.push({
+          chipId: chipId,
+          lastSeen: esp.lastSeen,
+          ip: esp.ip,
+          rssi: esp.rssi
+        });
+      }
+    }
+    return available;
+  }
+
+  // Send rental configuration to ESP32 - MODIFIED
   async startRental(machineId, rentalId) {
     if (!this.isConnected) {
       throw new Error('MQTT not connected');
     }
 
-    // Validate machine exists
     try {
-      const machine = await Machine.findById(machineId);
-      if (!machine) {
-        throw new Error(`Machine ${machineId} not found`);
+      // Cari ESP yang available
+      const availableESPs = this.findAvailableESP();
+      if (availableESPs.length === 0) {
+        throw new Error('No available ESP32 devices found');
       }
-    } catch (error) {
-      console.error('❌ Machine validation error:', error);
-      throw error;
-    }
 
-    const configMessage = {
-      action: 'startRental',
-      machineId: machineId,
-      rentalId: rentalId,
-      timestamp: Date.now(),
-      sensorConfig: {
-        readInterval: 5000, // 5 seconds
-        enabledSensors: ['suhu', 'kelembaban']
-      }
-    };
+      // Gunakan ESP pertama yang available
+      const targetESP = availableESPs[0];
+      const chipId = targetESP.chipId;
 
-    const success = this.client.publish(
-      this.topics.CONFIG,
-      JSON.stringify(configMessage), {
-        qos: 1
-      }
-    );
-
-    if (success) {
-      console.log(`🚀 Rental config sent to machine ${machineId}`);
-      console.log(`📤 Config:`, configMessage);
-      return {
-        success: true,
-        message: 'Rental configuration sent'
+      const configMessage = {
+        action: 'startRental',
+        machineId: machineId,
+        rentalId: rentalId,
+        timestamp: Date.now(),
+        sensorConfig: {
+          readInterval: 5000,
+          enabledSensors: ['suhu', 'tekanan', 'getaran']
+        },
+        sensors: [
+          {
+            sensorId: "suhu_001",
+            sensorType: "suhu",
+            isActive: true,
+            readInterval: 5000
+          },
+          {
+            sensorId: "tekanan_001", 
+            sensorType: "tekanan",
+            isActive: true,
+            readInterval: 5000
+          },
+          {
+            sensorId: "getaran_001",
+            sensorType: "getaran", 
+            isActive: true,
+            readInterval: 5000
+          }
+        ]
       };
-    } else {
-      throw new Error('Failed to send rental configuration');
+
+      const topic = `machine/${chipId}/config`;
+      
+      const success = this.client.publish(
+        topic,
+        JSON.stringify(configMessage), {
+          qos: 1,
+          retain: false
+        }
+      );
+
+      if (success) {
+        console.log(`🚀 Rental config sent to ESP ${chipId} for machine ${machineId}`);
+        console.log(`📤 Config topic: ${topic}`);
+        
+        // Update ESP tracking
+        this.espConnections.set(chipId, {
+          ...this.espConnections.get(chipId),
+          machineId: machineId
+        });
+
+        return {
+          success: true,
+          message: 'Rental configuration sent',
+          topic: topic,
+          chipId: chipId,
+          espInfo: targetESP
+        };
+      } else {
+        throw new Error('Failed to send rental configuration');
+      }
+
+    } catch (error) {
+      console.error('❌ Start rental error:', error);
+      throw error;
     }
   }
 
-  // Stop rental
+  // Stop rental - MODIFIED
   async stopRental(machineId, rentalId) {
     if (!this.isConnected) {
       throw new Error('MQTT not connected');
     }
 
-    const configMessage = {
-      action: 'stopRental',
-      machineId: machineId,
-      rentalId: rentalId,
-      timestamp: Date.now()
-    };
-
-    const success = this.client.publish(
-      this.topics.CONFIG,
-      JSON.stringify(configMessage), {
-        qos: 1
+    try {
+      const rental = this.activeRentals.get(machineId);
+      if (!rental) {
+        throw new Error(`No active rental found for machine ${machineId}`);
       }
-    );
 
-    if (success) {
-      console.log(`🛑 Stop rental sent to machine ${machineId}`);
-      this.activeRentals.delete(machineId);
-      return {
-        success: true,
-        message: 'Stop rental sent'
+      const chipId = rental.chipId;
+      const configMessage = {
+        action: 'stopRental',
+        machineId: machineId,
+        rentalId: rentalId,
+        timestamp: Date.now()
       };
-    } else {
-      throw new Error('Failed to send stop rental command');
+
+      const topic = `machine/${chipId}/config`;
+      
+      const success = this.client.publish(
+        topic,
+        JSON.stringify(configMessage), {
+          qos: 1,
+          retain: false
+        }
+      );
+
+      if (success) {
+        console.log(`🛑 Stop rental sent to machine ${machineId} (ESP: ${chipId})`);
+        this.activeRentals.delete(machineId);
+        
+        // Reset ESP tracking
+        if (this.espConnections.has(chipId)) {
+          const esp = this.espConnections.get(chipId);
+          this.espConnections.set(chipId, {
+            ...esp,
+            machineId: null,
+            isStarted: false
+          });
+        }
+
+        return {
+          success: true,
+          message: 'Stop rental sent',
+          topic: topic
+        };
+      } else {
+        throw new Error('Failed to send stop rental command');
+      }
+    } catch (error) {
+      console.error('❌ Stop rental error:', error);
+      throw error;
     }
   }
 
@@ -330,13 +440,32 @@ class MqttRentalHelper {
     return rentals;
   }
 
+  // Get all ESP connections
+  getESPConnections() {
+    const connections = [];
+    this.espConnections.forEach((esp, chipId) => {
+      connections.push({
+        chipId,
+        ...esp
+      });
+    });
+    return connections;
+  }
+
   // Health check
   isHealthy() {
     return {
       mqttConnected: this.isConnected,
       activeRentals: this.activeRentals.size,
+      espConnections: this.espConnections.size,
       uptime: process.uptime()
     };
+  }
+
+  // Emergency shutdown function
+  async emergencyShutdown(rentalId, reason) {
+    console.log(`🚨 EMERGENCY SHUTDOWN - Rental: ${rentalId}, Reason: ${reason}`);
+    // Implement emergency shutdown logic here
   }
 
   // Graceful shutdown
@@ -367,7 +496,5 @@ process.on('SIGTERM', async () => {
   await mqttRentalHelper.disconnect();
   process.exit(0);
 });
-
-
 
 module.exports = mqttRentalHelper;

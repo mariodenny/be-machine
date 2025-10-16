@@ -27,7 +27,7 @@ const machineSchema = new mongoose.Schema({
   },
   esp_address: {
     type: String,
-    default: "192.168.0.1"
+    default: ""
   },
   // chipId: { type: String, unique: true, required: false },
   imageUrl: {

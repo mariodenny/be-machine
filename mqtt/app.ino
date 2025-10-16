@@ -402,7 +402,7 @@ void sendHardwareStatus() {
   Serial.println("🔧 Hardware status sent");
 }
 
-// ---------------- MQTT CALLBACK (Modified) ----------------
+// ---------------- MQTT CALLBACK (FIXED) ----------------
 void callback(char* topic, byte* payload, unsigned int length) {
   payload[length] = '\0';
   String message = String((char*)payload);
@@ -413,34 +413,64 @@ void callback(char* topic, byte* payload, unsigned int length) {
     StaticJsonDocument<1024> doc;
     DeserializationError err = deserializeJson(doc, message);
     if (!err) {
+      String action = doc["action"] | "";
       rentalId = doc["rentalId"] | "";
       machineId = doc["machineId"] | "";
       statusInterval = doc["statusInterval"] | 5000;
       
-      JsonArray sensorsArray = doc["sensors"];
-      sensorCount = 0;
-      
-      for (JsonObject sensorObj : sensorsArray) {
-        if (sensorCount < 10) {
-          sensors[sensorCount].sensorId = sensorObj["sensorId"] | "";
-          sensors[sensorCount].sensorType = sensorObj["sensorType"] | "";
-          sensors[sensorCount].isActive = sensorObj["isActive"] | false;
-          sensors[sensorCount].readInterval = sensorObj["readInterval"] | 10000;
-          sensors[sensorCount].lastRead = 0;
-          sensors[sensorCount].lastValue = 0.0;
-          sensors[sensorCount].isHardwareAvailable = false; // Will be checked during execution
-          sensorCount++;
+      // Handle different actions
+      if (action == "startRental") {
+        if (systemReady) {
+          isStarted = true;
+          
+          // Parse sensor configuration
+          JsonArray sensorsArray = doc["sensors"];
+          sensorCount = 0;
+          
+          for (JsonObject sensorObj : sensorsArray) {
+            if (sensorCount < 10) {
+              sensors[sensorCount].sensorId = sensorObj["sensorId"] | "";
+              sensors[sensorCount].sensorType = sensorObj["sensorType"] | "";
+              sensors[sensorCount].isActive = sensorObj["isActive"] | false;
+              sensors[sensorCount].readInterval = sensorObj["readInterval"] | 10000;
+              sensors[sensorCount].lastRead = 0;
+              sensors[sensorCount].lastValue = 0.0;
+              sensors[sensorCount].isHardwareAvailable = false;
+              sensorCount++;
+            }
+          }
+          
+          Serial.println("🚀 === RENTAL STARTED ===");
+          Serial.println("📋 Rental ID: " + rentalId);
+          Serial.println("🏭 Machine ID: " + machineId);
+          Serial.println("📊 Jumlah Sensor: " + String(sensorCount));
+          Serial.println("⏰ Read Interval: " + String(statusInterval) + "ms");
+          
+          // Re-detect hardware after config
+          detectAllHardware();
+          sendHardwareStatus();
+          
+          // Send confirmation
+          sendRentalReport(true, "Rental started successfully");
+          
+        } else {
+          Serial.println("❌ Cannot start rental - system not ready!");
+          sendRentalReport(false, "System not ready - no sensors detected");
         }
       }
+      else if (action == "stopRental") {
+        isStarted = false;
+        Serial.println("🛑 === RENTAL STOPPED ===");
+        sendRentalReport(true, "Rental stopped successfully");
+        
+        // Reset sensor data
+        sensorCount = 0;
+        machineId = "";
+        rentalId = "";
+      }
       
-      Serial.println("🔧 === CONFIG DITERIMA ===");
-      Serial.println("📋 Rental ID: " + rentalId);
-      Serial.println("🏭 Machine ID: " + machineId);
-      Serial.println("📊 Jumlah Sensor: " + String(sensorCount));
-      
-      // Re-detect hardware after config
-      detectAllHardware();
-      sendHardwareStatus();
+    } else {
+      Serial.println("❌ Failed to parse config JSON");
     }
   }
   
@@ -449,12 +479,15 @@ void callback(char* topic, byte* payload, unsigned int length) {
       if (systemReady) {
         isStarted = true;
         Serial.println("🚀 === MESIN DIHIDUPKAN ===");
+        sendRentalReport(true, "Machine started via command");
       } else {
         Serial.println("⚠️  Cannot start - no sensors detected!");
+        sendRentalReport(false, "Cannot start - system not ready");
       }
     } else if (message == "stop") {
       isStarted = false;
       Serial.println("🛑 === MESIN DIMATIKAN ===");
+      sendRentalReport(true, "Machine stopped via command");
     } else if (message == "detect") {
       Serial.println("🔍 Manual hardware detection requested...");
       detectAllHardware();
@@ -463,6 +496,28 @@ void callback(char* topic, byte* payload, unsigned int length) {
   }
 }
 
+// ---------------- FUNGSI KIRIM LAPORAN RENTAL ----------------
+void sendRentalReport(bool success, String message) {
+  if (!mqttConnected || machineId == "") return;
+  
+  StaticJsonDocument<256> doc;
+  doc["machineId"] = machineId;
+  doc["rentalId"] = rentalId;
+  doc["chipId"] = chipId;
+  doc["status"] = success ? "success" : "error";
+  doc["message"] = message;
+  doc["timestamp"] = millis();
+  doc["isStarted"] = isStarted;
+  doc["systemReady"] = systemReady;
+  
+  char buffer[256];
+  serializeJson(doc, buffer);
+  
+  String topic = "machine/" + machineId + "/report";
+  client.publish(topic.c_str(), buffer, 0);
+  
+  Serial.println("📊 Rental report sent: " + message);
+}
 // ---------------- FUNGSI RECONNECT (Modified) ----------------
 void reconnect() {
   while (!client.connected()) {
@@ -642,7 +697,7 @@ void setup() {
   Serial.println("   - MQTT: 🔄 Connecting...");
 }
 
-// ---------------- LOOP (Modified) ----------------
+// ---------------- LOOP (Optimized) ----------------
 void loop() {
   // Check WiFi connection
   if (WiFi.status() != WL_CONNECTED) {
@@ -675,14 +730,14 @@ void loop() {
     sendHeartbeat();
   }
   
-  // Send machine status
+  // Send machine status (if we have machineId)
   if (machineId != "" && now - lastSend > statusInterval) {
     lastSend = now;
     sendMachineStatus();
   }
   
-  // Process sensors only if system is ready and machine is started
-  if (systemReady && isStarted && machineId != "" && mqttConnected) {
+  // Process sensors only if machine is started AND we have sensors configured
+  if (mqttConnected && isStarted && sensorCount > 0) {
     for (int i = 0; i < sensorCount; i++) {
       Sensor &sensor = sensors[i];
       

@@ -1,6 +1,3 @@
-// index.js
-
-
 const express = require("express");
 const cors = require("cors");
 const cron = require("node-cron");
@@ -27,6 +24,7 @@ const routeRental = require('./routes/routeRental')
 const routeNotificationV2 = require('./routes/V2/routeNotification')
 const routeSensorV2 = require('./routes/V2/routeSensor')
 const routeCountV2 = require('./routes/V2/routeCount')
+const testRoutes = require('./routes/routeTest')
 // panggil mqtt worker
 require("./controllers/V2/mqttWorker")
 
@@ -102,6 +100,9 @@ app.use("/api", routeRental)
 app.use("/api/V2/notifications", routeNotificationV2)
 app.use("/api/v2", routeSensorV2)
 app.use("/api/v2/count", routeCountV2);
+
+// test routes
+app.use("/api/", testRoutes)
 
 
 

@@ -741,7 +741,6 @@ exports.getLiveStatus = async (req, res) => {
             });
         }
 
-        // 2. Jika ada rentalId, validasi rental
         let rentalInfo = null;
         if (rentalId) {
             rentalInfo = await Rental.findOne({
@@ -758,10 +757,8 @@ exports.getLiveStatus = async (req, res) => {
             }
         }
 
-        // 3. Get machine status (jika ada model MachineStatus)
         const machineStatus = await MachineStatus.findOne({ machineId });
 
-        // 4. Get latest sensors data dengan ESP connection check
         const sensorTypes = ['suhu', 'tekanan', 'getaran', 'current', 'button', 'buzzer'];
         const sensors = {};
         let lastDataTime = null;
@@ -773,12 +770,10 @@ exports.getLiveStatus = async (req, res) => {
             }).sort({ waktu: -1 });
 
             if (sensor) {
-                // Update lastDataTime
                 if (!lastDataTime || sensor.waktu > lastDataTime) {
                     lastDataTime = sensor.waktu;
                 }
 
-                // Calculate status based on thresholds
                 const status = calculateSensorStatus(type, sensor.value, machine.sensorThresholds);
                 
                 sensors[type] = {
@@ -792,7 +787,6 @@ exports.getLiveStatus = async (req, res) => {
                     thresholdInfo: getThresholdInfo(type, sensor.value, machine.sensorThresholds)
                 };
             } else {
-                // Sensor tidak ada data
                 sensors[type] = {
                     value: null,
                     displayValue: "No data",
@@ -806,17 +800,14 @@ exports.getLiveStatus = async (req, res) => {
             }
         }
 
-        // 5. Check ESP connection status
         const espStatus = await checkESPConnectionStatus(machineId, lastDataTime);
         
-        // 6. Get real-time status dari machine
         const realTimeStatus = machine.realTimeStatus || {
             sensorValue: 0,
             status: "disconnected",
             lastUpdate: new Date()
         };
 
-        // 7. Prepare response
         const response = {
             success: true,
             data: {
