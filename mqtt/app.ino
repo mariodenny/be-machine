@@ -593,8 +593,6 @@ void sendMachineStatus() {
 }
 
 void sendSensorData(Sensor &sensor) {
-  if (!mqttConnected || machineId == "" || !sensor.isHardwareAvailable) return;
-  
   StaticJsonDocument<256> doc;
   doc["sensorId"] = sensor.sensorId;
   doc["machineId"] = machineId;
@@ -729,15 +727,13 @@ void loop() {
     lastHeartbeat = now;
     sendHeartbeat();
   }
-  
   // Send machine status (if we have machineId)
-  if (machineId != "" && now - lastSend > statusInterval) {
+  if (now - lastSend > statusInterval) {
     lastSend = now;
     sendMachineStatus();
   }
   
-  // Process sensors only if machine is started AND we have sensors configured
-  if (mqttConnected && isStarted && sensorCount > 0) {
+  if (mqttConnected && sensorCount > 0) {
     for (int i = 0; i < sensorCount; i++) {
       Sensor &sensor = sensors[i];
       

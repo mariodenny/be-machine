@@ -25,6 +25,11 @@ const machineSchema = new mongoose.Schema({
     type: String,
     default: "default_sensor_value"
   },
+  sensorTypes: [{
+    type: String,
+    enum: ['suhu', 'tekanan', 'getaran', 'kelembaban', 'current', 'buzzer', 'humidity', 'vibration'],
+    default: ['suhu', 'tekanan', 'getaran'] // Default value
+  }],
   esp_address: {
     type: String,
     default: ""

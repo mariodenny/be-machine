@@ -1,41 +1,77 @@
 const Rental = require("../models/rentalModel");
 const countController = require("./V2/countController");
-const {publishConfig, publishCommand} = require('../mqtt/mqttHelper')
+const {
+  publishConfig,
+  publishCommand
+} = require('../mqtt/mqttHelper')
 const mqttHelper = require('../mqtt/mqttHelper')
 
 exports.createRental = async (req, res) => {
   try {
-    const { machineId, userId, awal_peminjaman, akhir_peminjaman } = req.body;
-    const rental = await Rental.create({ machineId, userId, awal_peminjaman, akhir_peminjaman });
+    const {
+      machineId,
+      userId,
+      awal_peminjaman,
+      akhir_peminjaman
+    } = req.body;
+    const rental = await Rental.create({
+      machineId,
+      userId,
+      awal_peminjaman,
+      akhir_peminjaman
+    });
     await countController.updateRentalCount();
-    res.status(201).json({ success: true, data: rental });
+    res.status(201).json({
+      success: true,
+      data: rental
+    });
   } catch (error) {
-    res.status(500).json({ success: false, error: error.message });
+    res.status(500).json({
+      success: false,
+      error: error.message
+    });
   }
 };
 
 exports.getRentals = async (req, res) => {
   try {
-    const rentals = await Rental.find().populate("machineId").populate("userId").sort({ createdAt: -1 });
-    res.status(200).json({ success: true, data: rentals });
+    const rentals = await Rental.find().populate("machineId").populate("userId").sort({
+      createdAt: -1
+    });
+    res.status(200).json({
+      success: true,
+      data: rentals
+    });
   } catch (error) {
-    res.status(500).json({ success: false, error: error.message });
+    res.status(500).json({
+      success: false,
+      error: error.message
+    });
   }
 };
 
 exports.getRentalByUserId = async (req, res) => {
   try {
-    const { userId } = req.params;
+    const {
+      userId
+    } = req.params;
 
-    const rentals = await Rental.find({ userId })
+    const rentals = await Rental.find({
+        userId
+      })
       .populate({
         path: "machineId",
         select: "name model description imageUrl"
       })
-      .sort({ createdAt: -1 });
+      .sort({
+        createdAt: -1
+      });
 
     if (!rentals.length) {
-      return res.status(404).json({ success: false, message: "No rentals found for this user" });
+      return res.status(404).json({
+        success: false,
+        message: "No rentals found for this user"
+      });
     }
 
     const result = rentals.map(rental => {
@@ -44,19 +80,17 @@ exports.getRentalByUserId = async (req, res) => {
       const oneDayMs = 1000 * 60 * 60 * 24;
       const days = Math.ceil(Math.abs(end - start) / oneDayMs);
 
-      const mesin = rental.machineId
-        ? {
-          nama: rental.machineId.name,
-          model: rental.machineId.model,
-          deskripsi: rental.machineId.description,
-          gambar: rental.machineId.imageUrl
-        }
-        : {
-          nama: null,
-          model: null,
-          deskripsi: null,
-          gambar: null
-        };
+      const mesin = rental.machineId ? {
+        nama: rental.machineId.name,
+        model: rental.machineId.model,
+        deskripsi: rental.machineId.description,
+        gambar: rental.machineId.imageUrl
+      } : {
+        nama: null,
+        model: null,
+        deskripsi: null,
+        gambar: null
+      };
 
       return {
         id: rental._id,
@@ -73,17 +107,25 @@ exports.getRentalByUserId = async (req, res) => {
       };
     });
 
-    res.status(200).json({ success: true, data: result });
+    res.status(200).json({
+      success: true,
+      data: result
+    });
 
   } catch (error) {
-    res.status(500).json({ success: false, error: error.message });
+    res.status(500).json({
+      success: false,
+      error: error.message
+    });
   }
 };
 
 
 exports.getRentalById = async (req, res) => {
   try {
-    const { id } = req.params;
+    const {
+      id
+    } = req.params;
 
     const rental = await Rental.findById(id)
       .populate({
@@ -96,7 +138,10 @@ exports.getRentalById = async (req, res) => {
       });
 
     if (!rental) {
-      return res.status(404).json({ success: false, message: "Rental not found" });
+      return res.status(404).json({
+        success: false,
+        message: "Rental not found"
+      });
     }
 
     const start = new Date(rental.awal_peminjaman);
@@ -135,130 +180,191 @@ exports.getRentalById = async (req, res) => {
     });
 
   } catch (error) {
-    res.status(500).json({ success: false, error: error.message });
+    res.status(500).json({
+      success: false,
+      error: error.message
+    });
   }
 };
 
 exports.getRentalsByStatus = async (req, res) => {
   try {
-    const { status } = req.body;
+    const {
+      status
+    } = req.body;
     if (!status) {
-      return res.status(400).json({ success: false, message: "Status is required" });
+      return res.status(400).json({
+        success: false,
+        message: "Status is required"
+      });
     }
 
-    const rentals = await Rental.find({ status })
+    const rentals = await Rental.find({
+        status
+      })
       .populate("machineId")
       .populate("userId")
-      .sort({ createdAt: -1 });
+      .sort({
+        createdAt: -1
+      });
 
-    res.status(200).json({ success: true, data: rentals });
+    res.status(200).json({
+      success: true,
+      data: rentals
+    });
   } catch (error) {
-    res.status(500).json({ success: false, error: error.message });
+    res.status(500).json({
+      success: false,
+      error: error.message
+    });
   }
 };
 
 exports.updateRental = async (req, res) => {
   try {
-    const { id } = req.params;
+    const {
+      id
+    } = req.params;
     const updates = req.body;
-    const rental = await Rental.findByIdAndUpdate(id, updates, { new: true });
-    if (!rental) return res.status(404).json({ success: false, message: "Rental not found" });
-    res.status(200).json({ success: true, data: rental });
+    const rental = await Rental.findByIdAndUpdate(id, updates, {
+      new: true
+    });
+    if (!rental) return res.status(404).json({
+      success: false,
+      message: "Rental not found"
+    });
+    res.status(200).json({
+      success: true,
+      data: rental
+    });
   } catch (error) {
-    res.status(500).json({ success: false, error: error.message });
+    res.status(500).json({
+      success: false,
+      error: error.message
+    });
   }
 };
 
 exports.deleteRental = async (req, res) => {
   try {
-    const { id } = req.params;
+    const {
+      id
+    } = req.params;
     const deleted = await Rental.findByIdAndDelete(id);
-    if (!deleted) return res.status(404).json({ success: false, message: "Rental not found" });
-    res.status(200).json({ success: true, message: "Rental deleted" });
+    if (!deleted) return res.status(404).json({
+      success: false,
+      message: "Rental not found"
+    });
+    res.status(200).json({
+      success: true,
+      message: "Rental deleted"
+    });
   } catch (error) {
-    res.status(500).json({ success: false, error: error.message });
+    res.status(500).json({
+      success: false,
+      error: error.message
+    });
   }
 };
 
 exports.updateRentalStatus = async (req, res) => {
-  const { id } = req.params;
-  const { status } = req.body;
+  const {
+    id
+  } = req.params;
+  const {
+    status
+  } = req.body;
 
   const allowedStatuses = ["Disetujui", "Ditolak", "Pending"];
   if (!allowedStatuses.includes(status)) {
-    return res.status(400).json({ success: false, message: "Invalid status value" });
+    return res.status(400).json({
+      success: false,
+      message: "Invalid status value"
+    });
   }
 
   try {
     const rental = await Rental.findByIdAndUpdate(
-      id,
-      { status: status },
-      { new: true }
+      id, {
+        status: status
+      }, {
+        new: true
+      }
     ).populate("machineId").populate("userId");
 
     if (!rental) {
-      return res.status(404).json({ success: false, message: "Rental not found" });
+      return res.status(404).json({
+        success: false,
+        message: "Rental not found"
+      });
     }
 
     await countController.updateRentalCount();
-    res.status(200).json({ success: true, data: rental });
+    res.status(200).json({
+      success: true,
+      data: rental
+    });
   } catch (error) {
-    res.status(500).json({ success: false, error: error.message });
+    res.status(500).json({
+      success: false,
+      error: error.message
+    });
   }
 };
-
+// endpoint start rental
 exports.startRental = async (req, res) => {
   try {
-    const { id } = req.params;
-    
+    const {
+      id
+    } = req.params;
+
     const rental = await Rental.findById(id)
       .populate('machineId')
       .populate('userId', 'name email');
 
     if (!rental) {
-      return res.status(404).json({ 
-        success: false, 
-        message: "Rental not found" 
+      return res.status(404).json({
+        success: false,
+        message: "Rental not found"
       });
     }
 
-    // DEBUG LOG YANG BENAR
-    console.log('🔍 Rental data:', {
+    console.log('🔍 Rental data:', JSON.stringify({
       rentalId: rental._id.toString(),
       machineId: rental.machineId ? rental.machineId._id.toString() : 'NULL',
       machineName: rental.machineId ? rental.machineId.name : 'NULL',
-      esp_address: rental.machineId ? rental.machineId.esp_address : 'NULL',
+      userId: rental.userId ? rental.userId.name : 'NULL',
       status: rental.status,
-      isStarted: rental.isStarted
-    });
+      isStarted: rental.isStarted,
+      awalPeminjaman: rental.awal_peminjaman,
+      akhirPeminjaman: rental.akhir_peminjaman
+    }, null, 2));
 
     if (rental.isStarted) {
-      return res.status(400).json({ 
-        success: false, 
-        message: "Rental already started" 
+      return res.status(400).json({
+        success: false,
+        message: "Rental already started"
       });
     }
 
     if (rental.status !== "Disetujui") {
-      return res.status(400).json({ 
-        success: false, 
-        message: "Rental belum disetujui" 
+      return res.status(400).json({
+        success: false,
+        message: "Rental belum disetujui"
       });
     }
 
     if (!rental.machineId) {
-      return res.status(400).json({ 
-        success: false, 
-        message: "Rental tidak memiliki machine yang terdaftar" 
+      return res.status(400).json({
+        success: false,
+        message: "Rental tidak memiliki machine yang terdaftar"
       });
     }
 
-    // Validasi waktu rental
     const now = new Date();
     const awalPeminjaman = new Date(rental.awal_peminjaman);
     const akhirPeminjaman = new Date(rental.akhir_peminjaman);
 
-    // Toleransi 15 menit sebelum waktu mulai
     const toleransiMulai = new Date(awalPeminjaman.getTime() - (15 * 60 * 1000));
 
     if (now < toleransiMulai) {
@@ -275,49 +381,47 @@ exports.startRental = async (req, res) => {
       });
     }
 
-    // Update rental status
-    rental.isStarted = true;
-    rental.isActivated = true;
-    rental.startTime = now;
-    await rental.save();
-
     try {
       console.log(`📡 Sending rental config to ESP32 via MQTT...`);
-      
+
       const machineIdStr = rental.machineId._id.toString();
       const rentalIdStr = rental._id.toString();
-      
+
       // Gunakan mqttRentalHelper untuk kirim config
       const mqttResult = await mqttHelper.startRental(machineIdStr, rentalIdStr);
-      
-      // DEBUG MQTT RESULT YANG BENAR
-      console.log('✅ MQTT Result:', {
+
+      console.log(`MQTT Result ${JSON.stringify({
         success: mqttResult.success,
         message: mqttResult.message,
         topic: mqttResult.topic,
         chipId: mqttResult.chipId
-      });
-      
+      })}`)
+
       // Log untuk monitoring
-      console.log(`🎯 Rental started successfully:`, {
+      console.log(`🎯 Rental started successfully:`, JSON.stringify({
         machineId: machineIdStr,
         rentalId: rentalIdStr,
         machineName: rental.machineId.name,
         userName: rental.userId.name,
         esp_chipId: rental.machineId.esp_address,
         mqtt_topic: mqttResult.topic
-      });
-      
+      }));
+
     } catch (mqttError) {
       console.error("❌ MQTT Error:", mqttError.message);
-      
-      // Fallback: rental tetap di-mark sebagai started meski MQTT gagal
       console.warn('⚠️ Rental started but MQTT config failed. ESP32 might not receive config.');
     }
 
-    res.status(200).json({ 
-      success: true, 
-      message: "Rental berhasil dimulai", 
+    rental.isStarted = true;
+    rental.isActivated = true;
+    rental.startTime = now;
+    await rental.save();
+
+
+
+    res.status(200).json({
+      success: true,
+      message: "Rental berhasil dimulai",
       data: {
         rentalId: rental._id,
         machineId: rental.machineId._id,
@@ -332,23 +436,34 @@ exports.startRental = async (req, res) => {
 
   } catch (error) {
     console.error('❌ startRental Error:', error);
-    res.status(500).json({ 
-      success: false, 
-      error: error.message 
+    res.status(500).json({
+      success: false,
+      error: error.message
     });
   }
 };
 
 exports.endRental = async (req, res) => {
   try {
-    const { id } = req.params;
+    const {
+      id
+    } = req.params;
     const rental = await Rental.findById(id).populate('machineId');
 
-    if (!rental) return res.status(404).json({ success: false, message: "Rental not found" });
+    if (!rental) return res.status(404).json({
+      success: false,
+      message: "Rental not found"
+    });
 
-    if (!rental.isStarted) return res.status(400).json({ success: false, message: "Rental belum dimulai" });
+    if (!rental.isStarted) return res.status(400).json({
+      success: false,
+      message: "Rental belum dimulai"
+    });
 
-    if (rental.isActivated) return res.status(400).json({ success: false, message: "Rental sudah berakhir" });
+    if (rental.isActivated) return res.status(400).json({
+      success: false,
+      message: "Rental sudah berakhir"
+    });
 
     const now = new Date();
     const waktuMulai = rental.startTime || new Date(rental.awal_peminjaman);
@@ -392,14 +507,21 @@ exports.endRental = async (req, res) => {
     });
 
   } catch (error) {
-    res.status(500).json({ success: false, error: error.message });
+    res.status(500).json({
+      success: false,
+      error: error.message
+    });
   }
 };
 
 exports.emergencyShutdown = async (req, res) => {
   try {
-    const { rentalId } = req.params;
-    const { reason } = req.body;
+    const {
+      rentalId
+    } = req.params;
+    const {
+      reason
+    } = req.body;
 
     // Cari rental aktif
     const rental = await Rental.findOne({
@@ -409,7 +531,9 @@ exports.emergencyShutdown = async (req, res) => {
     }).populate('machineId');
 
     if (!rental) {
-      return res.status(404).json({ error: 'Active rental not found' });
+      return res.status(404).json({
+        error: 'Active rental not found'
+      });
     }
 
     // Update status rental & mesin
@@ -433,8 +557,7 @@ exports.emergencyShutdown = async (req, res) => {
     await sendNotification(
       rental.userId,
       '🚨 EMERGENCY SHUTDOWN',
-      `Mesin ${rental.machineId.name} dihentikan karena: ${reason}`,
-      { 
+      `Mesin ${rental.machineId.name} dihentikan karena: ${reason}`, {
         rentalId: rental._id.toString(),
         type: 'emergency_shutdown',
         machineId: rental.machineId._id.toString()
@@ -447,17 +570,21 @@ exports.emergencyShutdown = async (req, res) => {
       data: rental
     });
   } catch (error) {
-    res.status(500).json({ error: error.message });
+    res.status(500).json({
+      error: error.message
+    });
   }
 };
 
 exports.checkSystemDelay = async (req, res) => {
   try {
-    const { machineId } = req.params;
-    
+    const {
+      machineId
+    } = req.params;
+
     // Test timing dari ESP ke MongoDB ke Response
     const testStart = Date.now();
-    
+
     // Simpan test data
     const testSensor = await SensorV2.create({
       machineId,
@@ -467,17 +594,19 @@ exports.checkSystemDelay = async (req, res) => {
       deviceTimestamp: Date.now(),
       waktu: new Date()
     });
-    
+
     const dbWriteTime = Date.now() - testStart;
-    
+
     // Query data terbaru
     const latestData = await SensorV2.findOne({
       machineId,
       sensorType: 'delay_test'
-    }).sort({ waktu: -1 });
-    
+    }).sort({
+      waktu: -1
+    });
+
     const totalDelay = Date.now() - testStart;
-    
+
     res.json({
       success: true,
       data: {
@@ -488,16 +617,22 @@ exports.checkSystemDelay = async (req, res) => {
         recommendation: totalDelay > 1000 ? 'High latency detected' : 'System responsive'
       }
     });
-    
+
   } catch (error) {
-    res.status(500).json({ error: error.message });
+    res.status(500).json({
+      error: error.message
+    });
   }
 };
 
 exports.exportSensorDataWithDelay = async (req, res) => {
   try {
-    const { machineId, startDate, endDate } = req.query;
-    
+    const {
+      machineId,
+      startDate,
+      endDate
+    } = req.query;
+
     // Include delay information in export
     const sensorData = await SensorV2.find({
       machineId,
@@ -505,31 +640,35 @@ exports.exportSensorDataWithDelay = async (req, res) => {
         $gte: new Date(startDate),
         $lte: new Date(endDate)
       }
-    }).populate('machineId').sort({ waktu: -1 });
-    
+    }).populate('machineId').sort({
+      waktu: -1
+    });
+
     // Calculate processing delays for each record
     const dataWithDelay = sensorData.map(record => ({
       Timestamp: record.waktu,
-      'ID Mesin': record.machineId?.name || 'N/A',
+      'ID Mesin': record.machineId,
       Sensor: record.sensorType,
       Value: record.value,
       Unit: record.unit,
-      'Processing Delay (ms)': record.deviceTimestamp ? 
+      'Processing Delay (ms)': record.deviceTimestamp ?
         (new Date(record.waktu) - new Date(record.deviceTimestamp)) : 'N/A',
-      'Data Quality': record.deviceTimestamp && 
+      'Data Quality': record.deviceTimestamp &&
         (new Date(record.waktu) - new Date(record.deviceTimestamp)) < 5000 ? 'Good' : 'Delayed'
     }));
-    
+
     // Export ke CSV (pakai function yang sudah ada)
     const csv = convertToCsv(dataWithDelay);
-    
+
     res.setHeader('Content-Type', 'text/csv');
-    res.setHeader('Content-Disposition', 
+    res.setHeader('Content-Disposition',
       `attachment; filename=sensor-data-with-delay-${machineId}.csv`);
     res.send(csv);
-    
+
   } catch (error) {
-    res.status(500).json({ error: error.message });
+    res.status(500).json({
+      error: error.message
+    });
   }
 };
 

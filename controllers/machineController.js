@@ -1,4 +1,5 @@
 const Machine = require("../models/machineModel");
+const Rental = require("../models/rentalModel")
 const serverUrl = process.env.SERVER_URL || "http://localhost:5000";
 
 // GET machine by id
@@ -171,22 +172,42 @@ exports.updateRealTimeStatus = async (req, res) => {
     res.status(500).json({ success: false, error: error.message });
   }
 };
-
-// ✅ GET real-time status
+// ✅ GET real-time status + DEBUG
 exports.getRealTimeStatus = async (req, res) => {
   try {
     const { machineId } = req.params;
-    const machine = await Machine.findById(machineId);
     
+    console.log('Debug RealTimeStatus for machine:', machineId);
+    
+    const machine = await Machine.findById(machineId);
     if (!machine) {
       return res.status(404).json({ success: false, message: "Machine not found" });
     }
 
+    const activeRental = await Rental.findOne({
+      machineId: machineId,
+      isStarted: true
+    });
+
+    console.log('📊 Debug Info:', {
+      machineId: machineId,
+      realTimeStatus: machine.realTimeStatus,
+      hasActiveRental: !!activeRental,
+      rentalId: activeRental?._id,
+      esp_address: machine.esp_address
+    });
+
     res.json({
       success: true,
-      data: machine.realTimeStatus
+      data: machine.realTimeStatus,
+      debug: {
+        hasActiveRental: !!activeRental,
+        rentalId: activeRental?._id,
+        esp_address: machine.esp_address
+      }
     });
   } catch (error) {
+    console.error('❌ getRealTimeStatus error:', error);
     res.status(500).json({ success: false, error: error.message });
   }
 };

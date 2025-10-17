@@ -16,7 +16,7 @@ router.get("/machine/:id",verifyToken,machineController.getMachineById)
 //new routes for live
 router.get("/:machineId/thresholds", machineController.getMachineThresholds);
 router.put("/:machineId/thresholds", machineController.updateMachineThresholds);
-router.get("/:machineId/real-time-status", machineController.getRealTimeStatus);
-router.put("/:machineId/real-time-status", machineController.updateRealTimeStatus);
+router.get("/machine/:machineId/real-time-status", machineController.getRealTimeStatus);
+router.put("/machine/:machineId/real-time-status", machineController.updateRealTimeStatus);
 
 module.exports = router;
