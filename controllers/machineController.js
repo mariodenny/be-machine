@@ -172,14 +172,12 @@ exports.updateRealTimeStatus = async (req, res) => {
     res.status(500).json({ success: false, error: error.message });
   }
 };
-// ✅ GET real-time status + DEBUG
+
 exports.getRealTimeStatus = async (req, res) => {
   try {
     const { machineId } = req.params;
-    
-    console.log('Debug RealTimeStatus for machine:', machineId);
-    
     const machine = await Machine.findById(machineId);
+    
     if (!machine) {
       return res.status(404).json({ success: false, message: "Machine not found" });
     }
@@ -187,32 +185,81 @@ exports.getRealTimeStatus = async (req, res) => {
     const activeRental = await Rental.findOne({
       machineId: machineId,
       isStarted: true
-    });
+    }).populate('userId', 'name');
 
-    console.log('📊 Debug Info:', {
-      machineId: machineId,
-      realTimeStatus: machine.realTimeStatus,
-      hasActiveRental: !!activeRental,
-      rentalId: activeRental?._id,
-      esp_address: machine.esp_address
-    });
-
-    res.json({
+    const response = {
       success: true,
-      data: machine.realTimeStatus,
-      debug: {
-        hasActiveRental: !!activeRental,
-        rentalId: activeRental?._id,
-        esp_address: machine.esp_address
+      data: {
+        sensorValue: machine.realTimeStatus?.sensorValue || 0,
+        status: machine.realTimeStatus?.status || 'normal',
+        lastUpdate: machine.realTimeStatus?.lastUpdate,
+        
+        sensorType: machine.realTimeStatus?.sensorType || 'suhu',
+        unit: getUnit(machine.realTimeStatus?.sensorType),
+        displayConfig: getWidgetDisplayConfig(machine.realTimeStatus?.sensorType)
       }
-    });
+    };
+
+
+    res.json(response);
   } catch (error) {
-    console.error('❌ getRealTimeStatus error:', error);
     res.status(500).json({ success: false, error: error.message });
   }
 };
 
-// ✅ GET machines with real-time status (for dashboard)
+function getWidgetDisplayConfig(sensorType) {
+  const configs = {
+    'suhu': {
+      icon: '🌡️',
+      title: 'Suhu',
+      color: '#FF6B6B',
+      gradient: ['#FF6B6B', '#FF8E8E'],
+      minValue: 0,
+      maxValue: 100,
+      formatValue: (value) => `${value}°C`
+    },
+    'kelembaban': {
+      icon: '💧', 
+      title: 'Kelembaban',
+      color: '#4FC3F7',
+      gradient: ['#4FC3F7', '#81D4FA'],
+      minValue: 0,
+      maxValue: 100,
+      formatValue: (value) => `${value}%`
+    },
+    'tekanan': {
+      icon: '🔧',
+      title: 'Tekanan',
+      color: '#FFD54F',
+      gradient: ['#FFD54F', '#FFE082'],
+      minValue: 0,
+      maxValue: 10,
+      formatValue: (value) => `${value} bar`
+    },
+    'getaran': {
+      icon: '📳',
+      title: 'Getaran',
+      color: '#BA68C8',
+      gradient: ['#BA68C8', '#CE93D8'],
+      minValue: 0,
+      maxValue: 1,
+      formatValue: (value) => value > 0 ? 'TERDETEKSI' : 'NORMAL'
+    }
+  };
+
+  return configs[sensorType] || configs['suhu']; // Default ke suhu
+}
+
+function getUnit(sensorType) {
+  const units = {
+    'suhu': '°C',
+    'kelembaban': '%',
+    'tekanan': 'bar',
+    'getaran': 'mm/s'
+  };
+  return units[sensorType] || '';
+}
+
 exports.getMachinesWithStatus = async (req, res) => {
   try {
     const machines = await Machine.find().sort({ createdAt: -1 });

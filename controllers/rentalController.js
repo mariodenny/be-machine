@@ -443,53 +443,137 @@ exports.startRental = async (req, res) => {
   }
 };
 
+exports.extendRental = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { extendMinutes } = req.body; // 5, 10, 15 menit
+
+    const rental = await Rental.findById(id).populate('machineId');
+    
+    if (!rental) {
+      return res.status(404).json({ 
+        success: false, 
+        message: "Rental not found" 
+      });
+    }
+
+    if (!rental.isStarted) {
+      return res.status(400).json({ 
+        success: false, 
+        message: "Rental belum dimulai" 
+      });
+    }
+
+    if (rental.isActivated) {
+      return res.status(400).json({ 
+        success: false, 
+        message: "Rental sudah berakhir" 
+      });
+    }
+
+    // Validasi extend minutes
+    const allowedMinutes = [5, 10, 15];
+    if (!allowedMinutes.includes(extendMinutes)) {
+      return res.status(400).json({ 
+        success: false, 
+        message: "Durasi perpanjangan tidak valid. Pilih 5, 10, atau 15 menit" 
+      });
+    }
+
+    // Extend waktu akhir peminjaman
+    const currentEndTime = new Date(rental.akhir_peminjaman);
+    const newEndTime = new Date(currentEndTime.getTime() + (extendMinutes * 60 * 1000));
+    
+    rental.akhir_peminjaman = newEndTime;
+    await rental.save();
+
+    // Kirim notifikasi ke ESP (optional)
+    if (rental.machineId && rental.machineId.esp_address) {
+      try {
+        // Kirim config ulang dengan waktu extended
+        await mqttHelper.startRental(
+          rental.machineId._id.toString(), 
+          rental._id.toString()
+        );
+        console.log(`🔄 Extended rental config sent to ESP: ${rental.machineId.esp_address}`);
+      } catch (mqttError) {
+        console.error("MQTT Extend Error:", mqttError.message);
+      }
+    }
+
+    res.status(200).json({
+      success: true,
+      message: `Rental berhasil diperpanjang ${extendMinutes} menit`,
+      data: {
+        rentalId: rental._id,
+        machineName: rental.machineId.name,
+        newEndTime: newEndTime,
+        extendedMinutes: extendMinutes,
+        totalExtended: rental.extendedMinutes || 0 + extendMinutes
+      }
+    });
+
+  } catch (error) {
+    console.error('❌ Extend rental error:', error);
+    res.status(500).json({ 
+      success: false, 
+      error: error.message 
+    });
+  }
+};
+
+// ✅ END RENTAL (Yang sudah ada, tapi kita optimize)
 exports.endRental = async (req, res) => {
   try {
-    const {
-      id
-    } = req.params;
+    const { id } = req.params;
     const rental = await Rental.findById(id).populate('machineId');
 
-    if (!rental) return res.status(404).json({
-      success: false,
-      message: "Rental not found"
-    });
+    if (!rental) {
+      return res.status(404).json({ 
+        success: false, 
+        message: "Rental not found" 
+      });
+    }
 
-    if (!rental.isStarted) return res.status(400).json({
-      success: false,
-      message: "Rental belum dimulai"
-    });
+    if (!rental.isStarted) {
+      return res.status(400).json({ 
+        success: false, 
+        message: "Rental belum dimulai" 
+      });
+    }
 
-    if (rental.isActivated) return res.status(400).json({
-      success: false,
-      message: "Rental sudah berakhir"
-    });
+    if (rental.isActivated) {
+      return res.status(400).json({ 
+        success: false, 
+        message: "Rental sudah berakhir" 
+      });
+    }
 
     const now = new Date();
     const waktuMulai = rental.startTime || new Date(rental.awal_peminjaman);
 
-    // Hitung durasi aktual
     const durasiAktualMs = now - waktuMulai;
-    const durasiAktualJam = durasiAktualMs / (1000 * 60 * 60);
     const durasiAktualMenit = Math.floor(durasiAktualMs / (1000 * 60));
 
     // Update rental
     rental.isActivated = true;
-    rental.endTime = now; // Pakai field yang sudah ada
+    rental.isStarted = false; 
+    rental.endTime = now;
     rental.durasi_aktual_menit = durasiAktualMenit;
     await rental.save();
 
-    // Kirim command STOP ke ESP32 via MQTT
     if (rental.machineId && rental.machineId.esp_address) {
       try {
-        publishCommand(rental.machineId.esp_address, "stop");
-        console.log(`MQTT STOP command sent to ESP32: ${rental.machineId.esp_address}`);
+        await mqttHelper.stopRental(
+          rental.machineId._id.toString(), 
+          rental._id.toString()
+        );
+        console.log(`🛑 STOP command sent to ESP: ${rental.machineId.esp_address}`);
       } catch (mqttError) {
-        console.error("MQTT Error:", mqttError.message);
+        console.error("MQTT Stop Error:", mqttError.message);
       }
     }
 
-    // Populate data untuk response
     await rental.populate('userId', 'name email');
     await rental.populate('machineId', 'name type model');
 
@@ -499,7 +583,7 @@ exports.endRental = async (req, res) => {
       data: {
         ...rental.toObject(),
         durasi_aktual: {
-          jam: Math.floor(durasiAktualJam),
+          jam: Math.floor(durasiAktualMenit / 60),
           menit: durasiAktualMenit % 60,
           total_menit: durasiAktualMenit
         }
@@ -507,9 +591,10 @@ exports.endRental = async (req, res) => {
     });
 
   } catch (error) {
-    res.status(500).json({
-      success: false,
-      error: error.message
+    console.error('❌ End rental error:', error);
+    res.status(500).json({ 
+      success: false, 
+      error: error.message 
     });
   }
 };
