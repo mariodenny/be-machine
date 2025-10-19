@@ -5,12 +5,22 @@ const Machine = require("../models/machineModel");
 const Notification = require("../models/notificationModel");
 
 const notificationCache = new Map();
+const CACHE_TTL = 5 * 60 * 1000; // 5 menit
+
+// Fungsi cleanup cache expired
+setInterval(() => {
+    const now = Date.now();
+    for (const [key, value] of notificationCache.entries()) {
+        if (now - value.timestamp > CACHE_TTL) {
+            notificationCache.delete(key);
+        }
+    }
+}, 60 * 1000); // Cleanup setiap 1 menit
 
 exports.sendThresholdNotification = async (machineId, sensorData) => {
     try {
         console.log('🔔 Checking threshold notification for:', machineId, sensorData);
         
-        // 1. Cari rental aktif untuk mesin ini
         const activeRental = await Rental.findOne({
             machineId: machineId,
             status: "Disetujui",
@@ -31,16 +41,22 @@ exports.sendThresholdNotification = async (machineId, sensorData) => {
             return;
         }
 
-        // 2. Hitung status berdasarkan thresholds
         const status = calculateSensorStatus(sensorData.value, machine.sensorThresholds, sensorData.sensorType);
         
         // 3. Hanya kirim notifikasi untuk status Caution, Warning
-        if (status === 'normal') return;
+        if (status === 'normal') {
+            // Clear cache jika status kembali normal
+            const cacheKey = `${machineId}-${sensorData.sensorType}`;
+            notificationCache.delete(cacheKey);
+            return;
+        }
 
-        // 4. Cek cache untuk prevent spam
+        // 4. Cek cache untuk prevent spam dengan TTL
         const cacheKey = `${machineId}-${sensorData.sensorType}-${status}`;
-        const lastNotification = notificationCache.get(cacheKey);
-        if (lastNotification && (Date.now() - lastNotification < 5 * 60 * 1000)) {
+        const cachedNotification = notificationCache.get(cacheKey);
+        
+        if (cachedNotification && (Date.now() - cachedNotification.timestamp < CACHE_TTL)) {
+            console.log('⏳ Notification skipped (anti-spam):', cacheKey);
             return;
         }
 
@@ -60,7 +76,15 @@ exports.sendThresholdNotification = async (machineId, sensorData) => {
                 status: status,
                 timestamp: new Date().toISOString()
             },
-            token: user.fcmToken
+            token: user.fcmToken,
+            android: {
+                priority: status === 'warning' ? 'high' : 'normal'
+            },
+            apns: {
+                headers: {
+                    'apns-priority': status === 'warning' ? '10' : '5'
+                }
+            }
         };
 
         await admin.messaging().send(message);
@@ -76,36 +100,72 @@ exports.sendThresholdNotification = async (machineId, sensorData) => {
             read: false,
         });
 
-        notificationCache.set(cacheKey, Date.now());
+        // 8. Update cache dengan timestamp
+        notificationCache.set(cacheKey, {
+            timestamp: Date.now(),
+            status: status,
+            value: sensorData.value
+        });
+        
         console.log(`📢 Threshold notification sent: ${title}`);
 
     } catch (error) {
         console.error('Error sending threshold notification:', error);
+        // Handle specific FCM errors
+        if (error.code === 'messaging/registration-token-not-registered') {
+            // Update user FCM token to null
+            await User.findByIdAndUpdate(user._id, { fcmToken: null });
+        }
     }
 };
 
-// Helper functions
 const calculateSensorStatus = (value, thresholds, sensorType) => {
-    if (!thresholds) return 'normal';
-    if (value >= thresholds.warning) return 'warning';
-    if (value >= thresholds.caution) return 'caution';
+    if (!thresholds || !thresholds[sensorType]) return 'normal';
+    
+    const sensorThresholds = thresholds[sensorType];
+    
+    // Untuk nilai yang semakin besar = semakin buruk (temperature, pressure, dll)
+    if (value >= sensorThresholds.critical) return 'critical';
+    if (value >= sensorThresholds.warning) return 'warning';
+    if (value >= sensorThresholds.caution) return 'caution';
+    
     return 'normal';
 };
 
 const getNotificationContent = (machine, sensorData, status) => {
+    const statusText = {
+        'caution': 'Perhatian',
+        'warning': 'Peringatan', 
+        'critical': 'Bahaya'
+    };
+
     const templates = {
         'caution': {
-            title: `⚠️ Perhatian: ${machine.name}`,
+            title: `⚠️ ${statusText[status]}: ${machine.name}`,
             body: `${sensorData.sensorType} ${sensorData.value}${sensorData.unit} - Mendekati batas aman`
         },
         'warning': {
-            title: `🚨 Peringatan: ${machine.name}`,
-            body: `${sensorData.sensorType} ${sensorData.value}${sensorData.unit} - Melebihi batas warning!`
+            title: `🚨 ${statusText[status]}: ${machine.name}`,
+            body: `${sensorData.sensorType} ${sensorData.value}${sensorData.unit} - Melebihi batas peringatan!`
+        },
+        'critical': {
+            title: `🔴 ${statusText[status]}: ${machine.name}`,
+            body: `${sensorData.sensorType} ${sensorData.value}${sensorData.unit} - Kondisi kritis! Segera hentikan mesin!`
         }
     };
-    return templates[status] || { title: 'Info', body: 'Status updated' };
+    
+    return templates[status] || { 
+        title: 'Info Mesin', 
+        body: `${machine.name} beroperasi normal` 
+    };
 };
 
 const getPriorityLevel = (status) => {
-    return status === 'warning' ? 'high' : 'medium';
+    const priorities = {
+        'critical': 'urgent',
+        'warning': 'high', 
+        'caution': 'medium',
+        'normal': 'low'
+    };
+    return priorities[status] || 'medium';
 };

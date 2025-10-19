@@ -35,4 +35,17 @@ router.get(
     notificationController.getRentalNotifications
 );
 
+router.get(
+    "/machines/:machineId/check-status",
+    authenticate,
+    notificationController.manualCheckMachineStatus
+);
+
+router.get(
+    "/notifications/stats",
+    authenticate,
+    notificationController.getNotificationStats
+);
+
+
 module.exports = router;

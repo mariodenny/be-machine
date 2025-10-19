@@ -190,6 +190,48 @@ async function checkMachineStatus(req, res) {
         res.status(500).json({ success: false, error: error.message });
     }
 }
+
+async function manualCheckMachineStatus(req, res) {
+    try {
+        const { machineId } = req.params;
+        
+        // Panggil service untuk check status
+        await checkMachineStatus(req, res);
+        
+        res.json({
+            success: true,
+            message: "Manual check completed",
+            machineId
+        });
+    } catch (error) {
+        res.status(500).json({ success: false, error: error.message });
+    }
+}
+
+async function getNotificationStats(req, res) {
+    try {
+        const stats = await Notification.aggregate([
+            {
+                $match: {
+                    userId: req.user.userId,
+                    createdAt: { $gte: new Date(Date.now() - 24 * 60 * 60 * 1000) } // 24 jam terakhir
+                }
+            },
+            {
+                $group: {
+                    _id: "$type",
+                    count: { $sum: 1 },
+                    unread: { $sum: { $cond: ["$read", 0, 1] } }
+                }
+            }
+        ]);
+
+        res.json({ success: true, data: stats });
+    } catch (error) {
+        res.status(500).json({ success: false, error: error.message });
+    }
+}
+
 module.exports = {
     sendNotification,
     checkAndSendRentalNotification,
@@ -198,5 +240,7 @@ module.exports = {
     updateNotificationStatus,
     getRentalNotifications,
     sendThresholdNotification,
-    checkMachineStatus
+    checkMachineStatus,
+    manualCheckMachineStatus,
+    getNotificationStats
 };
