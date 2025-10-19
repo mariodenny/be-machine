@@ -15,7 +15,7 @@ router.patch("/rentals/:id/start", verifyToken, rentalController.startRental);
 router.patch("/rentals/:id/end", verifyToken, rentalController.endRental);
 router.get("/rentals/:id", verifyToken, rentalController.getRentalById);
 router.get("/rentals/user/:userId", verifyToken, rentalController.getRentalByUserId)
-router.get("/rentals/:id/extend", verifyToken, rentalController.extendRental)
+router.post("/rentals/:id/extend", verifyToken, rentalController.extendRental)
 
 // emergency shutdown
 router.post('/rentals/:rentalId/emergency-shutdown', rentalController.emergencyShutdown);
