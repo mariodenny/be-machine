@@ -446,7 +446,17 @@ exports.startRental = async (req, res) => {
 exports.extendRental = async (req, res) => {
   try {
     const { id } = req.params;
-    const { extendMinutes } = req.body; // 5, 10, 15 menit
+    const { extendMinutes } = req.body;
+
+    console.log(`🔄 Extend rental request: ${id}, ${extendMinutes} minutes`);
+
+    // Validasi input
+    if (!extendMinutes) {
+      return res.status(400).json({ 
+        success: false, 
+        message: "extendMinutes is required" 
+      });
+    }
 
     const rental = await Rental.findById(id).populate('machineId');
     
@@ -464,33 +474,91 @@ exports.extendRental = async (req, res) => {
       });
     }
 
-    if (rental.isActivated) {
-      return res.status(400).json({ 
-        success: false, 
-        message: "Rental sudah berakhir" 
-      });
-    }
-
     // Validasi extend minutes
     const allowedMinutes = [5, 10, 15];
-    if (!allowedMinutes.includes(extendMinutes)) {
+    if (!allowedMinutes.includes(parseInt(extendMinutes))) {
       return res.status(400).json({ 
         success: false, 
         message: "Durasi perpanjangan tidak valid. Pilih 5, 10, atau 15 menit" 
       });
     }
 
+    // Debug: Cek semua field waktu
+    console.log('📅 Rental time details:');
+    console.log('   - awal_peminjaman:', rental.awal_peminjaman);
+    console.log('   - akhir_peminjaman:', rental.akhir_peminjaman);
+    console.log('   - isStarted:', rental.isStarted);
+    console.log('   - startedAt:', rental.startedAt);
+
+    // Cari sumber waktu yang valid untuk perhitungan
+    let baseTime;
+
+    // Priority 1: Gunakan startedAt jika ada dan valid
+    if (rental.startedAt && !isNaN(new Date(rental.startedAt).getTime())) {
+      baseTime = new Date(rental.startedAt);
+      console.log('🔄 Using startedAt as base time:', baseTime);
+    }
+    // Priority 2: Gunakan awal_peminjaman jika valid
+    else if (rental.awal_peminjaman && !isNaN(new Date(rental.awal_peminjaman).getTime())) {
+      baseTime = new Date(rental.awal_peminjaman);
+      console.log('🔄 Using awal_peminjaman as base time:', baseTime);
+    }
+    // Priority 3: Gunakan createdAt sebagai fallback
+    else {
+      baseTime = new Date(rental.createdAt);
+      console.log('🔄 Using createdAt as base time:', baseTime);
+    }
+
+    // Tentukan currentEndTime
+    let currentEndTime;
+
+    if (rental.akhir_peminjaman && !isNaN(new Date(rental.akhir_peminjaman).getTime())) {
+      // Jika akhir_peminjaman valid, gunakan itu
+      currentEndTime = new Date(rental.akhir_peminjaman);
+      console.log('🔄 Using existing akhir_peminjaman:', currentEndTime);
+    } else {
+      // Jika akhir_peminjaman invalid/undefined, hitung dari baseTime + durasi default
+      const defaultDuration = 60; // 60 menit default
+      currentEndTime = new Date(baseTime.getTime() + (defaultDuration * 60 * 1000));
+      console.log('🔄 Created new end time from base time:', currentEndTime);
+      
+      // Update rental dengan end time yang baru
+      rental.akhir_peminjaman = currentEndTime;
+    }
+
     // Extend waktu akhir peminjaman
-    const currentEndTime = new Date(rental.akhir_peminjaman);
-    const newEndTime = new Date(currentEndTime.getTime() + (extendMinutes * 60 * 1000));
+    const extendMs = parseInt(extendMinutes) * 60 * 1000;
+    const newEndTime = new Date(currentEndTime.getTime() + extendMs);
     
+    console.log('🕒 Time calculation:');
+    console.log('   - Base time:', baseTime);
+    console.log('   - Current end:', currentEndTime);
+    console.log('   - Extend minutes:', extendMinutes);
+    console.log('   - New end:', newEndTime);
+
+    // Update rental data
     rental.akhir_peminjaman = newEndTime;
+    
+    // Update extendedMinutes counter
+    rental.extendedMinutes = (rental.extendedMinutes || 0) + parseInt(extendMinutes);
+    
+    // Tambahkan log extend
+    rental.extendLogs = rental.extendLogs || [];
+    rental.extendLogs.push({
+      extendedAt: new Date(),
+      minutes: parseInt(extendMinutes),
+      oldEndTime: currentEndTime,
+      newEndTime: newEndTime,
+      note: 'Auto-corrected missing akhir_peminjaman'
+    });
+
+    // Simpan perubahan
     await rental.save();
+    console.log('✅ Rental updated successfully');
 
     // Kirim notifikasi ke ESP (optional)
     if (rental.machineId && rental.machineId.esp_address) {
       try {
-        // Kirim config ulang dengan waktu extended
         await mqttHelper.startRental(
           rental.machineId._id.toString(), 
           rental._id.toString()
@@ -498,6 +566,7 @@ exports.extendRental = async (req, res) => {
         console.log(`🔄 Extended rental config sent to ESP: ${rental.machineId.esp_address}`);
       } catch (mqttError) {
         console.error("MQTT Extend Error:", mqttError.message);
+        // Jangan return error, karena extend sudah berhasil di database
       }
     }
 
@@ -506,15 +575,35 @@ exports.extendRental = async (req, res) => {
       message: `Rental berhasil diperpanjang ${extendMinutes} menit`,
       data: {
         rentalId: rental._id,
-        machineName: rental.machineId.name,
+        machineName: rental.machineId?.name || 'Unknown Machine',
+        oldEndTime: currentEndTime,
         newEndTime: newEndTime,
-        extendedMinutes: extendMinutes,
-        totalExtended: rental.extendedMinutes || 0 + extendMinutes
+        extendedMinutes: parseInt(extendMinutes),
+        totalExtended: rental.extendedMinutes,
+        note: rental.akhir_peminjaman ? undefined : 'End time was automatically set'
       }
     });
 
   } catch (error) {
     console.error('❌ Extend rental error:', error);
+    
+    // Handle specific MongoDB validation errors
+    if (error.name === 'ValidationError') {
+      return res.status(400).json({ 
+        success: false, 
+        error: "Data validation failed",
+        details: error.message
+      });
+    }
+    
+    if (error.name === 'CastError') {
+      return res.status(400).json({ 
+        success: false, 
+        error: "Invalid data format",
+        details: error.message
+      });
+    }
+    
     res.status(500).json({ 
       success: false, 
       error: error.message 
@@ -757,4 +846,74 @@ exports.exportSensorDataWithDelay = async (req, res) => {
   }
 };
 
+
+// const emergencyFixRentalDates = async () => {
+//   try {
+//     console.log('🚨 Starting emergency fix for rental dates...');
+    
+//     // Cari semua rental yang akhir_peminjaman-nya undefined, null, atau invalid
+//     const problematicRentals = await Rental.find({
+//       $or: [
+//         { akhir_peminjaman: { $exists: false } },
+//         { akhir_peminjaman: null },
+//         { akhir_peminjaman: { $type: 'undefined' } },
+//         { akhir_peminjaman: { $eq: undefined } }
+//       ]
+//     }).populate('machineId');
+
+//     console.log(`🔧 Found ${problematicRentals.length} problematic rentals`);
+
+//     let fixedCount = 0;
+
+//     for (let rental of problematicRentals) {
+//       try {
+//         console.log(`\n🔧 Fixing rental: ${rental._id}`);
+//         console.log('   - awal_peminjaman:', rental.awal_peminjaman);
+//         console.log('   - akhir_peminjaman:', rental.akhir_peminjaman);
+//         console.log('   - startedAt:', rental.startedAt);
+//         console.log('   - createdAt:', rental.createdAt);
+
+//         let baseTime;
+//         let defaultDuration = 60; // 60 menit default
+
+//         // Tentukan base time
+//         if (rental.startedAt && !isNaN(new Date(rental.startedAt).getTime())) {
+//           baseTime = new Date(rental.startedAt);
+//         } else if (rental.awal_peminjaman && !isNaN(new Date(rental.awal_peminjaman).getTime())) {
+//           baseTime = new Date(rental.awal_peminjaman);
+//         } else {
+//           baseTime = new Date(rental.createdAt);
+//         }
+
+//         // Hitung end time baru
+//         const newEndTime = new Date(baseTime.getTime() + (defaultDuration * 60 * 1000));
+        
+//         // Update rental
+//         rental.akhir_peminjaman = newEndTime;
+//         rental.extendLogs = rental.extendLogs || [];
+//         rental.extendLogs.push({
+//           extendedAt: new Date(),
+//           minutes: 0,
+//           oldEndTime: null,
+//           newEndTime: newEndTime,
+//           note: 'EMERGENCY FIX: Missing akhir_peminjaman'
+//         });
+
+//         await rental.save();
+//         fixedCount++;
+//         console.log(`   ✅ Fixed - new end time: ${newEndTime}`);
+
+//       } catch (rentalError) {
+//         console.error(`   ❌ Error fixing rental ${rental._id}:`, rentalError.message);
+//       }
+//     }
+
+//     console.log(`\n🎉 Emergency fix completed! Fixed ${fixedCount} rentals`);
+    
+//   } catch (error) {
+//     console.error('💥 Emergency fix failed:', error);
+//   }
+// };
+
+// Jalankan script ini sekali
 // extend rental , 5 menit ,15 menit, 30 menit -> hanya 3 opsi ini
