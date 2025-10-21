@@ -236,14 +236,17 @@ async function testSensorNotification(req, res) {
     try {
         const { machineId, sensorType, value, unit } = req.body;
 
-        console.log('🧪 TEST: Simulating sensor data');
+        console.log('TEST: Simulating sensor data');
+        console.log('[DEBUG] Machine ID:', machineId);
+        console.log('[DEBUG] Sensor Data:', JSON.stringify({ sensorType, value, unit }));
         
-        // Panggil threshold service langsung
         await sendThresholdNotification(machineId, {
             sensorType: sensorType || 'temperature',
             value: value || 85,
             unit: unit || '°C'
         });
+
+        console.log('✅ [DEBUG] sendThresholdNotification completed');
 
         res.json({
             success: true,
@@ -257,13 +260,13 @@ async function testSensorNotification(req, res) {
         });
 
     } catch (error) {
+        console.error('❌ [DEBUG] Error in testSensorNotification:', error);
         res.status(500).json({
             success: false,
             error: error.message
         });
     }
 }
-
 module.exports = {
     sendNotification,
     checkAndSendRentalNotification,

@@ -12,83 +12,62 @@ const { calculateHybridThresholds } = require('./ml-treshold');
 const notificationCache = new Map();
 
 async function sendThresholdNotification(machineId, sensorData) {
+    console.log('🔔 [DEBUG] START sendThresholdNotification');
+    
     try {
-        // Dapatkan rental aktif untuk mesin ini
-        const activeRental = await Rental.findOne({
-            machineId: machineId,
-            status: "Disetujui",
-            startTime: { $lte: new Date() },
-            endTime: { $gte: new Date() }
-        }).populate("userId machineId");
+        const ObjectId = require('mongoose').Types.ObjectId;
+        const machineObjectId = new ObjectId(machineId);
+        
+        console.log('🔔 [DEBUG] Searching rental for machine:', machineObjectId);
 
-        if (!activeRental) return;
+     
+        const activeRental = await Rental.findOne({
+            machineId: machineObjectId,
+            status: "Disetujui",
+            isStarted: true
+        })
+        .populate("userId", "username fcmToken email") 
+        .populate("machineId", "name");            
+
+        console.log('🔔 [DEBUG] Rental query result:', activeRental ? 'FOUND' : 'NOT FOUND');
+
+        if (!activeRental) {
+            console.log('❌ No active rental found');
+            return { success: false, message: "No active rental" };
+        }
+
+        console.log('🔔 [DEBUG] User:', activeRental.userId);
+        console.log('🔔 [DEBUG] Machine:', activeRental.machineId);
 
         const user = activeRental.userId;
         const machine = activeRental.machineId;
-        
-        if (!user.fcmToken) return;
 
-        // Hitung thresholds untuk mesin ini
-        const machineType = determineMachineType(machine);
-        const thresholds = await calculateHybridThresholds(
-            machineType, 
-            sensorData.sensorType, 
-            machineId
-        );
 
-        const status = determineHybridStatus(sensorData.value, thresholds);
-        
-        // Hanya kirim notifikasi untuk status Caution, Warning, Critical
-        if (status === 'Normal') return;
+        const admins = await User.find({ 
+            role: 'admin', 
+            fcmToken: { $exists: true } 
+        }, 'username fcmToken email');  
 
-        // Cek cache untuk mencegah spam (notifikasi sama dalam 5 menit)
-        const cacheKey = `${machineId}-${sensorData.sensorType}-${status}`;
-        const lastNotification = notificationCache.get(cacheKey);
-        
-        if (lastNotification && (Date.now() - lastNotification < 5 * 60 * 1000)) {
-            return; // Skip jika notifikasi sama dalam 5 menit terakhir
+        console.log('🔔 [DEBUG] Admins found:', admins.length);
+        console.log('🔔 [DEBUG] Admin details:', admins);
+
+        for (const admin of admins) {
+            console.log('🔔 [DEBUG] Sending to admin:', admin.name, admin.fcmToken ? 'HAS TOKEN' : 'NO TOKEN');
         }
 
-        // Buat konten notifikasi berdasarkan status
-        const { title, body } = getNotificationContent(machine, sensorData, status, thresholds);
+        // 4. Kirim ke user
+        if (user.fcmToken) {
+            console.log('🔔 [DEBUG] Sending to user:', user.username);
+        } else {
+            console.log('❌ User has no FCM token - User:', user.username, user.email);
+        }
 
-        const message = {
-            notification: { title, body },
-            data: {
-                machineId: machineId.toString(),
-                sensorType: sensorData.sensorType,
-                value: sensorData.value.toString(),
-                status: status,
-                thresholdType: thresholds.basedOn,
-                timestamp: new Date().toISOString()
-            },
-            token: user.fcmToken,
-        };
-
-        // Kirim notifikasi
-        await admin.messaging().send(message);
-        
-        // Simpan ke database
-        await Notification.create({
-            userId: user._id,
-            title,
-            body,
-            data: message.data,
-            type: "sensor_alert",
-            priority: getPriorityLevel(status),
-            read: false,
-        });
-
-        // Update cache
-        notificationCache.set(cacheKey, Date.now());
-
-        console.log(`📢 Notifikasi ${status} terkirim untuk ${machine.name}: ${sensorData.value}${sensorData.unit}`);
+        console.log('✅ [DEBUG] sendThresholdNotification SUCCESS');
 
     } catch (error) {
-        console.error('Error sending threshold notification:', error);
+        console.error('❌ [DEBUG] ERROR in sendThresholdNotification:', error);
     }
 }
-
 // Helper function untuk konten notifikasi
 function getNotificationContent(machine, sensorData, status, thresholds) {
     const machineName = machine.name;
