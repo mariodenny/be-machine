@@ -2,12 +2,12 @@
 const admin = require("firebase-admin");
 const Rental = require("../models/rentalModel");
 const Machine = require("../models/machineModel");
-const Notification = require("../models/notificationModel");
+const Notification = require("../models/V2/notificationModel");
+const User = require("../models/userModel")
 
 const notificationCache = new Map();
 const CACHE_TTL = 5 * 60 * 1000; // 5 menit
 
-// Fungsi cleanup cache expired
 setInterval(() => {
     const now = Date.now();
     for (const [key, value] of notificationCache.entries()) {
@@ -19,103 +19,64 @@ setInterval(() => {
 
 exports.sendThresholdNotification = async (machineId, sensorData) => {
     try {
-        console.log('🔔 Checking threshold notification for:', machineId, sensorData);
-        
+        // 1. Cari rental aktif untuk mesin ini
         const activeRental = await Rental.findOne({
             machineId: machineId,
             status: "Disetujui",
-            startTime: { $lte: new Date() },
-            endTime: { $gte: new Date() }
+            isStarted: true
         }).populate("userId machineId");
 
-        if (!activeRental) {
-            console.log('No active rental for machine:', machineId);
-            return;
-        }
+        if (!activeRental) return;
 
         const user = activeRental.userId;
         const machine = activeRental.machineId;
+
+        const admins = await User.find({ role: 'admin', fcmToken: { $exists: true } });
         
-        if (!user.fcmToken) {
-            console.log('No FCM token for user:', user._id);
-            return;
+        for (const admin of admins) {
+            const adminMessage = {
+                notification: {
+                    title: `🚨 ADMIN - ${machine.name}`,
+                    body: `${sensorData.sensorType}: ${sensorData.value}${sensorData.unit}`
+                },
+                data: {
+                    type: 'ADMIN_ALERT',
+                    machineId: machineId.toString(),
+                    machineName: machine.name,
+                    sensorType: sensorData.sensorType,
+                    value: sensorData.value.toString()
+                },
+                token: admin.fcmToken
+            };
+            
+            await admin.messaging().send(adminMessage);
         }
-
-        const status = calculateSensorStatus(sensorData.value, machine.sensorThresholds, sensorData.sensorType);
         
-        // 3. Hanya kirim notifikasi untuk status Caution, Warning
-        if (status === 'normal') {
-            // Clear cache jika status kembali normal
-            const cacheKey = `${machineId}-${sensorData.sensorType}`;
-            notificationCache.delete(cacheKey);
-            return;
-        }
-
-        // 4. Cek cache untuk prevent spam dengan TTL
-        const cacheKey = `${machineId}-${sensorData.sensorType}-${status}`;
-        const cachedNotification = notificationCache.get(cacheKey);
+        console.log(`📢 Notif terkirim ke ${admins.length} admin`);
         
-        if (cachedNotification && (Date.now() - cachedNotification.timestamp < CACHE_TTL)) {
-            console.log('⏳ Notification skipped (anti-spam):', cacheKey);
-            return;
-        }
+        if (!user.fcmToken) return;
 
-        // 5. Buat konten notifikasi
-        const { title, body } = getNotificationContent(machine, sensorData, status);
+        const status = sensorData.value > 80 ? 'warning' : 'normal';
+        if (status === 'normal') return;
 
-        // 6. Kirim FCM
         const message = {
-            notification: { title, body },
+            notification: {
+                title: `⚠️ ${machine.name}`,
+                body: `${sensorData.sensorType} tinggi: ${sensorData.value}${sensorData.unit}`
+            },
             data: {
-                type: 'THRESHOLD_ALERT',
+                type: 'MACHINE_ALERT',
                 machineId: machineId.toString(),
-                machineName: machine.name,
-                sensorType: sensorData.sensorType,
-                value: sensorData.value.toString(),
-                unit: sensorData.unit || '',
-                status: status,
-                timestamp: new Date().toISOString()
+                machineName: machine.name
             },
-            token: user.fcmToken,
-            android: {
-                priority: status === 'warning' ? 'high' : 'normal'
-            },
-            apns: {
-                headers: {
-                    'apns-priority': status === 'warning' ? '10' : '5'
-                }
-            }
+            token: user.fcmToken
         };
 
         await admin.messaging().send(message);
-        
-        // 7. Simpan ke database
-        await Notification.create({
-            userId: user._id,
-            title,
-            body,
-            data: message.data,
-            type: "sensor_threshold",
-            priority: getPriorityLevel(status),
-            read: false,
-        });
-
-        // 8. Update cache dengan timestamp
-        notificationCache.set(cacheKey, {
-            timestamp: Date.now(),
-            status: status,
-            value: sensorData.value
-        });
-        
-        console.log(`📢 Threshold notification sent: ${title}`);
+        console.log(`📢 Notif terkirim ke user: ${user.name}`);
 
     } catch (error) {
-        console.error('Error sending threshold notification:', error);
-        // Handle specific FCM errors
-        if (error.code === 'messaging/registration-token-not-registered') {
-            // Update user FCM token to null
-            await User.findByIdAndUpdate(user._id, { fcmToken: null });
-        }
+        console.error('Error:', error);
     }
 };
 
@@ -124,7 +85,13 @@ const calculateSensorStatus = (value, thresholds, sensorType) => {
     
     const sensorThresholds = thresholds[sensorType];
     
-    // Untuk nilai yang semakin besar = semakin buruk (temperature, pressure, dll)
+    if (!sensorThresholds || 
+        typeof sensorThresholds.critical !== 'number' ||
+        typeof sensorThresholds.warning !== 'number' ||
+        typeof sensorThresholds.caution !== 'number') {
+        return 'normal';
+    }
+    
     if (value >= sensorThresholds.critical) return 'critical';
     if (value >= sensorThresholds.warning) return 'warning';
     if (value >= sensorThresholds.caution) return 'caution';

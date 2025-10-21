@@ -47,5 +47,7 @@ router.get(
     notificationController.getNotificationStats
 );
 
+// test notif
+router.post("/notification/test", authenticate, notificationController.testSensorNotification)
 
 module.exports = router;

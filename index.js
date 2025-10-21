@@ -97,7 +97,7 @@ app.use("/notifications", routeNotification);
 app.use("/api", routeMachine)
 app.use("/api", routeRental)
 // Register ke route v2
-app.use("/api/V2/notifications", routeNotificationV2)
+app.use("/api/V2", routeNotificationV2)
 app.use("/api/v2", routeSensorV2)
 app.use("/api/v2/count", routeCountV2);
 
