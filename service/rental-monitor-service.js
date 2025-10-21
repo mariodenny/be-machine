@@ -1,39 +1,52 @@
-const admin = require("firebase-admin");
-const Rental =  require('../models/rentalModel')
+const cron = require('node-cron');
 
+class RentalMonitorService {
+    startMonitoring() {
+        cron.schedule('*/30 * * * * *', async () => {
+            await this.checkEndingRentals();
+        });
+        console.log('✅ Rental monitoring started');
+    }
 
-async function checkEndingRentals() {
-    const now = new Date();
-    const threeMinutesFromNow = new Date(now.getTime() + 3 * 60 * 1000); // 3 menit
-    
-    // Cari rental yang mau habis
-    const endingRentals = await Rental.find({
-        status: "Disetujui",
-        isStarted: true,
-        endTime: { $lte: threeMinutesFromNow, $gt: now }
-    }).populate("userId machineId");
+    async checkEndingRentals() {
+        const now = new Date();
+        const threeMinutesFromNow = new Date(now.getTime() + 3 * 60 * 1000);
+        
+        const endingRentals = await Rental.find({
+            status: "Disetujui",
+            isStarted: true,
+            endTime: { 
+                $lte: threeMinutesFromNow,
+                $gt: now
+            }
+        }).populate("userId machineId");
 
-    for (const rental of endingRentals) {
+        for (const rental of endingRentals) {
+            await this.sendRentalEndingAlert(rental);
+        }
+    }
+
+    async sendRentalEndingAlert(rental) {
         const user = rental.userId;
         const machine = rental.machineId;
         
-        if (!user.fcmToken) continue;
-
-        // Kirim notif simple
-        const message = {
+        // KIRIM KE TOPIC USER
+        await admin.messaging().send({
             notification: {
                 title: `⏰ ${machine.name}`,
-                body: `Peminjaman mau habis dalam 3 menit`
+                body: `Peminjaman akan berakhir dalam 3 menit`
             },
             data: {
                 type: 'RENTAL_ENDING',
+                rentalId: rental._id.toString(),
                 machineId: machine._id.toString(),
                 machineName: machine.name
             },
-            token: user.fcmToken
-        };
+            topic: `user_${user._id}`
+        });
 
-        await admin.messaging().send(message);
-        console.log(`⏰ Notif rental ending ke: ${user.name}`);
+        console.log(`⏰ Rental ending alert sent for: ${machine.name}`);
     }
 }
+
+module.exports = new RentalMonitorService();

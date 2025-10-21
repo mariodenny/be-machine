@@ -405,41 +405,39 @@ const logout = async (req, res) => {
 
 const updateFcmToken = async (req, res) => {
   try {
-    const { fcmToken } = req.body;
-    // const userEmail = req.email; // From verifyToken middleware
-    const userEmail = req.user.email; // From verifyToken middleware
+    const { email, fcmToken } = req.body;
 
-    logWithTimestamp("Updating FCM token for user:", userEmail);
-    logWithTimestamp("FCM token length:", fcmToken?.length);
+    console.log('🔄 Updating FCM token for:', email);
 
-    if (!fcmToken) {
-      logWithTimestamp("No FCM token provided");
+    if (!fcmToken || !email) {
       return res.status(400).json({
         success: false,
-        message: "FCM Token required",
+        message: "Email and FCM Token required",
       });
     }
 
-    const user = await User.findOne({ email: userEmail });
+    // LANGSUNG UPDATE - ga perlu cek auth
+    const user = await User.findOneAndUpdate(
+      { email: email },
+      { fcmToken: fcmToken },
+      { new: true }
+    );
+
     if (!user) {
-      logWithTimestamp("User not found:", userEmail);
       return res.status(404).json({
         success: false,
         message: "User not found",
       });
     }
 
-    user.fcmToken = fcmToken;
-    await user.save();
-
-    logWithTimestamp("FCM Token updated successfully for:", userEmail);
+    console.log('✅ FCM Token updated for:', email);
 
     res.status(200).json({
       success: true,
       message: "FCM Token updated successfully",
     });
   } catch (error) {
-    logWithTimestamp("Error updating FCM token:", error);
+    console.error('❌ Error updating FCM token:', error);
     res.status(500).json({
       success: false,
       message: "Failed to update FCM token",
@@ -447,6 +445,7 @@ const updateFcmToken = async (req, res) => {
     });
   }
 };
+
 
 const verifyEmail = async (req, res) => {
   const { token } = req.query;

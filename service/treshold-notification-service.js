@@ -19,10 +19,9 @@ setInterval(() => {
 
 exports.sendThresholdNotification = async (machineId, sensorData) => {
     try {
-        // 1. Cari rental aktif untuk mesin ini
         const activeRental = await Rental.findOne({
             machineId: machineId,
-            status: "Disetujui",
+            status: "Disetujui", 
             isStarted: true
         }).populate("userId machineId");
 
@@ -31,10 +30,9 @@ exports.sendThresholdNotification = async (machineId, sensorData) => {
         const user = activeRental.userId;
         const machine = activeRental.machineId;
 
-        const admins = await User.find({ role: 'admin', fcmToken: { $exists: true } });
-        
-        for (const admin of admins) {
-            const adminMessage = {
+        // KIRIM KE 2 TOPIC
+        await admin.messaging().sendAll([
+            {
                 notification: {
                     title: `🚨 ADMIN - ${machine.name}`,
                     body: `${sensorData.sensorType}: ${sensorData.value}${sensorData.unit}`
@@ -42,38 +40,25 @@ exports.sendThresholdNotification = async (machineId, sensorData) => {
                 data: {
                     type: 'ADMIN_ALERT',
                     machineId: machineId.toString(),
-                    machineName: machine.name,
-                    sensorType: sensorData.sensorType,
-                    value: sensorData.value.toString()
+                    machineName: machine.name
                 },
-                token: admin.fcmToken
-            };
-            
-            await admin.messaging().send(adminMessage);
-        }
-        
-        console.log(`📢 Notif terkirim ke ${admins.length} admin`);
-        
-        if (!user.fcmToken) return;
-
-        const status = sensorData.value > 80 ? 'warning' : 'normal';
-        if (status === 'normal') return;
-
-        const message = {
-            notification: {
-                title: `⚠️ ${machine.name}`,
-                body: `${sensorData.sensorType} tinggi: ${sensorData.value}${sensorData.unit}`
+                topic: 'admin_alerts'
             },
-            data: {
-                type: 'MACHINE_ALERT',
-                machineId: machineId.toString(),
-                machineName: machine.name
-            },
-            token: user.fcmToken
-        };
-
-        await admin.messaging().send(message);
-        console.log(`📢 Notif terkirim ke user: ${user.name}`);
+            {
+                notification: {
+                    title: `⚠️ ${machine.name}`,
+                    body: `${sensorData.sensorType} tinggi: ${sensorData.value}${sensorData.unit}`
+                },
+                data: {
+                    type: 'MACHINE_ALERT',
+                    machineId: machineId.toString(), 
+                    machineName: machine.name
+                },
+                topic: `user_${user._id}`
+            }
+        ]);
+        
+        console.log(`📢 Threshold notif sent for: ${machine.name}`);
 
     } catch (error) {
         console.error('Error:', error);

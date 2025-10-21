@@ -28,6 +28,8 @@ const testRoutes = require('./routes/routeTest')
 // panggil mqtt worker
 require("./controllers/V2/mqttWorker")
 
+const rentalMonitor = require('./service/rental-monitor-service')
+
 const connectDb = require("./config/db");
 
 const sensorController = require("./controllers/sensorController");
@@ -104,7 +106,7 @@ app.use("/api/v2/count", routeCountV2);
 // test routes
 app.use("/api/", testRoutes)
 
-
+rentalMonitor.startMonitoring();
 
 const port = process.env.PORT || 5000;
 
