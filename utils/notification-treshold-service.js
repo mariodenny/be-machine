@@ -1,4 +1,5 @@
-const admin = require("firebase-admin");
+import admin from 'firebase-admin';
+import { getMessaging } from 'firebase-admin/messaging';
 const User = require("../models/userModel");
 const Rental = require("../models/rentalModel");
 const Machine = require("../models/machineModel");
@@ -11,64 +12,48 @@ const { calculateHybridThresholds } = require('./ml-treshold');
 // Cache untuk mencegah notifikasi spam
 const notificationCache = new Map();
 
-async function sendThresholdNotification(machineId, sensorData) {
-    console.log('🔔 [DEBUG] START sendThresholdNotification');
-    
+exports.sendThresholdNotification = async (machineId, sensorData) => {
     try {
-        const ObjectId = require('mongoose').Types.ObjectId;
-        const machineObjectId = new ObjectId(machineId);
-        
-        console.log('🔔 [DEBUG] Searching rental for machine:', machineObjectId);
-
-     
         const activeRental = await Rental.findOne({
-            machineId: machineObjectId,
+            machineId: machineId,
             status: "Disetujui",
             isStarted: true
-        })
-        .populate("userId", "username fcmToken email") 
-        .populate("machineId", "name");            
+        }).populate("userId machineId");
 
-        console.log('🔔 [DEBUG] Rental query result:', activeRental ? 'FOUND' : 'NOT FOUND');
-
-        if (!activeRental) {
-            console.log('❌ No active rental found');
-            return { success: false, message: "No active rental" };
-        }
-
-        console.log('🔔 [DEBUG] User:', activeRental.userId);
-        console.log('🔔 [DEBUG] Machine:', activeRental.machineId);
+        if (!activeRental) return;
 
         const user = activeRental.userId;
         const machine = activeRental.machineId;
 
+        const messages = [
+            {
+                notification: {
+                    title: `🚨 ADMIN - ${machine.name}`,
+                    body: `${sensorData.sensorType}: ${sensorData.value}${sensorData.unit}`
+                },
+                topic: 'admin_alerts'
+            },
+            {
+                notification: {
+                    title: `⚠️ ${machine.name}`,
+                    body: `${sensorData.sensorType} tinggi: ${sensorData.value}${sensorData.unit}`
+                }, 
+                topic: `user_${user._id}`
+            }
+        ];
 
-        const admins = await User.find({ 
-            role: 'admin', 
-            fcmToken: { $exists: true } 
-        }, 'username fcmToken email');  
-
-        console.log('🔔 [DEBUG] Admins found:', admins.length);
-        console.log('🔔 [DEBUG] Admin details:', admins);
-
-        for (const admin of admins) {
-            console.log('🔔 [DEBUG] Sending to admin:', admin.name, admin.fcmToken ? 'HAS TOKEN' : 'NO TOKEN');
+        for (const message of messages) {
+            await admin.messaging().send(message);
         }
-
-        // 4. Kirim ke user
-        if (user.fcmToken) {
-            console.log('🔔 [DEBUG] Sending to user:', user.username);
-        } else {
-            console.log('❌ User has no FCM token - User:', user.username, user.email);
-        }
-
-        console.log('✅ [DEBUG] sendThresholdNotification SUCCESS');
+        
+        console.log(`📢 Notif terkirim ke topic admin & user_${user._id}`);
 
     } catch (error) {
-        console.error('❌ [DEBUG] ERROR in sendThresholdNotification:', error);
+        console.error('Error:', error);
     }
-}
-// Helper function untuk konten notifikasi
+};
+
+
 function getNotificationContent(machine, sensorData, status, thresholds) {
     const machineName = machine.name;
     const value = sensorData.value;
@@ -176,7 +161,6 @@ async function checkMachineStatus(req, res) {
 }
 
 module.exports = {
-    sendThresholdNotification,
     checkMachineStatus,
     determineMachineType,
     determineHybridStatus

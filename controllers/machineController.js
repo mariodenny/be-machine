@@ -193,7 +193,6 @@ exports.getRealTimeStatus = async (req, res) => {
         sensorValue: machine.realTimeStatus?.sensorValue || 0,
         status: machine.realTimeStatus?.status || 'normal',
         lastUpdate: machine.realTimeStatus?.lastUpdate,
-        
         sensorType: machine.realTimeStatus?.sensorType || 'suhu',
         unit: getUnit(machine.realTimeStatus?.sensorType),
         displayConfig: getWidgetDisplayConfig(machine.realTimeStatus?.sensorType)
