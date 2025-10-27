@@ -1,18 +1,16 @@
 import admin from 'firebase-admin';
 import { getMessaging } from 'firebase-admin/messaging';
-const User = require("../models/userModel");
-const Rental = require("../models/rentalModel");
-const Machine = require("../models/machineModel");
-
-const SensorV2 = require("../models/V2/sensorModel");
-const Notification = require("../models/notificationModel");
-const { calculateHybridThresholds } = require('./ml-treshold');
-
+import User from "../models/userModel.js";
+import Rental from "../models/rentalModel.js";
+import Machine from "../models/machineModel.js";
+import SensorV2 from "../models/V2/sensorModel.js";
+import Notification from "../models/notificationModel.js";
+import { calculateHybridThresholds } from './ml-treshold.js';
 
 // Cache untuk mencegah notifikasi spam
 const notificationCache = new Map();
 
-exports.sendThresholdNotification = async (machineId, sensorData) => {
+export const sendThresholdNotification = async (machineId, sensorData) => {
     try {
         const activeRental = await Rental.findOne({
             machineId: machineId,
@@ -107,7 +105,7 @@ function determineHybridStatus(value, thresholds) {
     return 'Normal';
 }
 
-async function checkMachineStatus(req, res) {
+export async function checkMachineStatus(req, res) {
     try {
         const { machineId } = req.params;
         
@@ -160,7 +158,7 @@ async function checkMachineStatus(req, res) {
     }
 }
 
-module.exports = {
+export default {
     checkMachineStatus,
     determineMachineType,
     determineHybridStatus
