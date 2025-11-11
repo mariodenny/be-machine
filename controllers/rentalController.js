@@ -637,13 +637,6 @@ exports.endRental = async (req, res) => {
       });
     }
 
-    if (rental.isActivated) {
-      return res.status(400).json({
-        success: false,
-        message: "Rental sudah berakhir"
-      });
-    }
-
     const now = new Date();
     const waktuMulai = rental.startTime || new Date(rental.awal_peminjaman);
 

@@ -141,64 +141,64 @@ exports.updateMachineThresholds = async (req, res) => {
   }
 };
 
-// ✅ UPDATE real-time status (untuk MQTT/ESP update)
-exports.updateRealTimeStatus = async (req, res) => {
-  try {
-    const { machineId } = req.params;
-    const { sensorValue, status } = req.body;
-
-    const machine = await Machine.findByIdAndUpdate(
-      machineId,
-      {
-        $set: {
-          'realTimeStatus.sensorValue': sensorValue,
-          'realTimeStatus.status': status,
-          'realTimeStatus.lastUpdate': new Date()
-        }
-      },
-      { new: true }
-    );
-
-    if (!machine) {
-      return res.status(404).json({ success: false, message: "Machine not found" });
-    }
-
-    res.json({
-      success: true,
-      message: 'Real-time status updated',
-      data: machine.realTimeStatus
-    });
-  } catch (error) {
-    res.status(500).json({ success: false, error: error.message });
-  }
-};
-
 exports.getRealTimeStatus = async (req, res) => {
   try {
     const { machineId } = req.params;
+    const { sensorType } = req.query; // Optional: filter by sensor type
+
     const machine = await Machine.findById(machineId);
     
     if (!machine) {
       return res.status(404).json({ success: false, message: "Machine not found" });
     }
 
-    const activeRental = await Rental.findOne({
-      machineId: machineId,
-      isStarted: true
-    }).populate('userId', 'name');
+    // If specific sensor type requested
+    if (sensorType) {
+      const sensorEntry = Array.from(machine.realTimeStatus.entries())
+        .find(([key, value]) => value.sensorType === sensorType);
+      
+      if (!sensorEntry) {
+        return res.status(404).json({ 
+          success: false, 
+          message: `Sensor type ${sensorType} not found` 
+        });
+      }
+
+      const [sensorId, sensorData] = sensorEntry;
+      const response = {
+        success: true,
+        data: {
+          sensorValue: sensorData.sensorValue,
+          status: sensorData.status,
+          lastUpdate: sensorData.lastUpdate,
+          sensorType: sensorData.sensorType,
+          unit: sensorData.unit,
+          displayConfig: getWidgetDisplayConfig(sensorData.sensorType),
+          sensorId: sensorId
+        }
+      };
+
+      return res.json(response);
+    }
+
+    // Return all sensors data
+    const sensorsData = Array.from(machine.realTimeStatus.entries()).map(([sensorId, sensorData]) => ({
+      sensorId,
+      sensorValue: sensorData.sensorValue,
+      status: sensorData.status,
+      lastUpdate: sensorData.lastUpdate,
+      sensorType: sensorData.sensorType,
+      unit: sensorData.unit,
+      displayConfig: getWidgetDisplayConfig(sensorData.sensorType)
+    }));
 
     const response = {
       success: true,
-      data: {
-        sensorValue: machine.realTimeStatus?.sensorValue || 0,
-        status: machine.realTimeStatus?.status || 'normal',
-        lastUpdate: machine.realTimeStatus?.lastUpdate,
-        sensorType: machine.realTimeStatus?.sensorType || 'suhu',
-        unit: getUnit(machine.realTimeStatus?.sensorType),
-        displayConfig: getWidgetDisplayConfig(machine.realTimeStatus?.sensorType)
-      }
+      data: sensorsData,
+      globalStatus: machine.globalStatus,
+      relayState: machine.relayState,
+      buzzerState: machine.buzzerState
     };
-
 
     res.json(response);
   } catch (error) {
@@ -206,6 +206,57 @@ exports.getRealTimeStatus = async (req, res) => {
   }
 };
 
+// New endpoint to update sensor data from ESP32
+exports.updateRealTimeStatus = async (req, res) => {
+  try {
+    const { machineId } = req.params;
+    const { sensorId, sensorValue, sensorType, unit, status, relayState, buzzerState } = req.body;
+
+    const machine = await Machine.findById(machineId);
+    if (!machine) {
+      return res.status(404).json({ success: false, message: "Machine not found" });
+    }
+
+    // Update sensor data
+    machine.updateSensorStatus(sensorId, {
+      sensorValue,
+      sensorType,
+      unit,
+      status: status || 'normal'
+    });
+
+    // Update relay and buzzer state if provided
+    if (relayState !== undefined) machine.relayState = relayState;
+    if (buzzerState !== undefined) machine.buzzerState = buzzerState;
+
+    await machine.save();
+
+    // Emit real-time update via Socket.io if available
+    if (req.app.get('socketio')) {
+      req.app.get('socketio').emit(`machine-${machineId}-update`, {
+        sensorId,
+        sensorValue,
+        sensorType,
+        status: status || 'normal',
+        unit,
+        relayState: machine.relayState,
+        buzzerState: machine.buzzerState,
+        globalStatus: machine.globalStatus,
+        timestamp: new Date()
+      });
+    }
+
+    res.json({ 
+      success: true, 
+      message: "Sensor data updated",
+      globalStatus: machine.globalStatus
+    });
+  } catch (error) {
+    res.status(500).json({ success: false, error: error.message });
+  }
+};
+
+// Helper function untuk display config
 function getWidgetDisplayConfig(sensorType) {
   const configs = {
     'suhu': {
@@ -241,12 +292,39 @@ function getWidgetDisplayConfig(sensorType) {
       color: '#BA68C8',
       gradient: ['#BA68C8', '#CE93D8'],
       minValue: 0,
-      maxValue: 1,
-      formatValue: (value) => value > 0 ? 'TERDETEKSI' : 'NORMAL'
+      maxValue: 10,
+      formatValue: (value) => `${value} mm/s`
+    },
+    'vibration': {
+      icon: '📳',
+      title: 'Getaran',
+      color: '#BA68C8',
+      gradient: ['#BA68C8', '#CE93D8'],
+      minValue: 0,
+      maxValue: 10,
+      formatValue: (value) => `${value} mm/s`
+    },
+    'thermocouple': {
+      icon: '🔥',
+      title: 'Thermocouple',
+      color: '#FF5722',
+      gradient: ['#FF5722', '#FF8A65'],
+      minValue: 0,
+      maxValue: 1000,
+      formatValue: (value) => `${value}°C`
+    },
+    'current': {
+      icon: '⚡',
+      title: 'Arus',
+      color: '#FFC107',
+      gradient: ['#FFC107', '#FFD54F'],
+      minValue: 0,
+      maxValue: 100,
+      formatValue: (value) => `${value}A`
     }
   };
 
-  return configs[sensorType] || configs['suhu']; // Default ke suhu
+  return configs[sensorType] || configs['suhu'];
 }
 
 function getUnit(sensorType) {
