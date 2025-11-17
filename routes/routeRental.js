@@ -12,7 +12,7 @@ router.put("/rentals/:id", verifyToken, rentalController.updateRental);
 router.delete("/rentals/:id", verifyToken, rentalController.deleteRental);
 router.patch("/rentals/:id/status", verifyToken, rentalController.updateRentalStatus);
 router.patch("/rentals/:id/start", verifyToken, rentalController.startRental);
-router.patch("/rentals/:id/end", verifyToken, rentalController.endRental);
+router.patch("/rentals/:id/end", rentalController.endRental);
 router.get("/rentals/:id", verifyToken, rentalController.getRentalById);
 router.get("/rentals/user/:userId", verifyToken, rentalController.getRentalByUserId)
 router.post("/rentals/:id/extend", verifyToken, rentalController.extendRental)
