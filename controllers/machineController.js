@@ -5,25 +5,45 @@ const serverUrl = process.env.SERVER_URL || "http://localhost:5000";
 // GET machine by id
 exports.getMachineById = async (req, res) => {
   try {
-    const { id } = req.params;
-    
+    const {
+      id
+    } = req.params;
+
     const machine = await Machine.findById(id);
     if (!machine) {
-      return res.status(404).json({ success: false, message: "Machine not found" });
+      return res.status(404).json({
+        success: false,
+        message: "Machine not found"
+      });
     }
 
-    res.status(200).json({ success: true, data: machine });
+    res.status(200).json({
+      success: true,
+      data: machine
+    });
   } catch (error) {
-    res.status(500).json({ success: false, error: error.message });
+    res.status(500).json({
+      success: false,
+      error: error.message
+    });
   }
 };
 
 // CREATE machine
 exports.createMachine = async (req, res) => {
   try {
-    const { name, type, model, description, sensor } = req.body;
+    const {
+      name,
+      type,
+      model,
+      description,
+      sensor
+    } = req.body;
     if (!name || !type || !model) {
-      return res.status(400).json({ success: false, message: "Missing required fields" });
+      return res.status(400).json({
+        success: false,
+        message: "Missing required fields"
+      });
     }
 
     let imageUrl = "";
@@ -40,63 +60,106 @@ exports.createMachine = async (req, res) => {
       imageUrl
     });
 
-    res.status(201).json({ success: true, data: machine });
+    res.status(201).json({
+      success: true,
+      data: machine
+    });
   } catch (error) {
-    res.status(500).json({ success: false, error: error.message });
+    res.status(500).json({
+      success: false,
+      error: error.message
+    });
   }
 };
 
 // GET all machines
 exports.getMachines = async (req, res) => {
   try {
-    const machines = await Machine.find().sort({ createdAt: -1 });
-    res.status(200).json({ success: true, data: machines });
+    const machines = await Machine.find().sort({
+      createdAt: -1
+    });
+    res.status(200).json({
+      success: true,
+      data: machines
+    });
   } catch (error) {
-    res.status(500).json({ success: false, error: error.message });
+    res.status(500).json({
+      success: false,
+      error: error.message
+    });
   }
 };
 
 // UPDATE machine
 exports.updateMachine = async (req, res) => {
   try {
-    const { id } = req.params;
+    const {
+      id
+    } = req.params;
     const updates = req.body;
 
     if (req.file) {
       updates.imageUrl = `${serverUrl}/uploads/${req.file.filename}`;
     }
 
-    const machine = await Machine.findByIdAndUpdate(id, updates, { new: true });
-    if (!machine) return res.status(404).json({ success: false, message: "Machine not found" });
+    const machine = await Machine.findByIdAndUpdate(id, updates, {
+      new: true
+    });
+    if (!machine) return res.status(404).json({
+      success: false,
+      message: "Machine not found"
+    });
 
-    res.status(200).json({ success: true, data: machine });
+    res.status(200).json({
+      success: true,
+      data: machine
+    });
   } catch (error) {
-    res.status(500).json({ success: false, error: error.message });
+    res.status(500).json({
+      success: false,
+      error: error.message
+    });
   }
 };
 
 // DELETE machine
 exports.deleteMachine = async (req, res) => {
   try {
-    const { id } = req.params;
+    const {
+      id
+    } = req.params;
     const deleted = await Machine.findByIdAndDelete(id);
-    if (!deleted) return res.status(404).json({ success: false, message: "Machine not found" });
-    res.status(200).json({ success: true, message: "Machine deleted" });
+    if (!deleted) return res.status(404).json({
+      success: false,
+      message: "Machine not found"
+    });
+    res.status(200).json({
+      success: true,
+      message: "Machine deleted"
+    });
   } catch (error) {
-    res.status(500).json({ success: false, error: error.message });
+    res.status(500).json({
+      success: false,
+      error: error.message
+    });
   }
 };
 
 // ✅ GET machine thresholds
 exports.getMachineThresholds = async (req, res) => {
   try {
-    const { machineId } = req.params;
+    const {
+      machineId
+    } = req.params;
     const machine = await Machine.findById(machineId);
-    
+
     if (!machine) {
-      return res.status(404).json({ success: false, message: "Machine not found" });
+      return res.status(404).json({
+        success: false,
+        message: "Machine not found"
+      });
     }
-    
+
     res.json({
       success: true,
       data: {
@@ -105,30 +168,42 @@ exports.getMachineThresholds = async (req, res) => {
       }
     });
   } catch (error) {
-    res.status(500).json({ success: false, error: error.message });
+    res.status(500).json({
+      success: false,
+      error: error.message
+    });
   }
 };
 
 // ✅ UPDATE machine thresholds
 exports.updateMachineThresholds = async (req, res) => {
   try {
-    const { machineId } = req.params;
-    const { caution, warning, autoShutdown } = req.body;
+    const {
+      machineId
+    } = req.params;
+    const {
+      caution,
+      warning,
+      autoShutdown
+    } = req.body;
 
     const machine = await Machine.findByIdAndUpdate(
-      machineId,
-      {
+      machineId, {
         $set: {
           'sensorThresholds.caution': caution,
           'sensorThresholds.warning': warning,
           'sensorThresholds.autoShutdown': autoShutdown || false
         }
-      },
-      { new: true }
+      }, {
+        new: true
+      }
     );
 
     if (!machine) {
-      return res.status(404).json({ success: false, message: "Machine not found" });
+      return res.status(404).json({
+        success: false,
+        message: "Machine not found"
+      });
     }
 
     res.json({
@@ -137,91 +212,131 @@ exports.updateMachineThresholds = async (req, res) => {
       data: machine
     });
   } catch (error) {
-    res.status(500).json({ success: false, error: error.message });
+    res.status(500).json({
+      success: false,
+      error: error.message
+    });
   }
 };
 
-exports.getRealTimeStatus = async (req, res) => {
-  try {
-    const { machineId } = req.params;
-    const { sensorType } = req.query; // Optional: filter by sensor type
-
-    const machine = await Machine.findById(machineId);
-    
-    if (!machine) {
-      return res.status(404).json({ success: false, message: "Machine not found" });
-    }
-
-    if (!machine.realTimeStatus) {
-  machine.realTimeStatus = new Map();
+function ensureMap(obj) {
+  if (!obj || !(obj instanceof Map)) {
+    return new Map();
+  }
+  return obj;
 }
 
-    // If specific sensor type requested
+exports.getRealTimeStatus = async (req, res) => {
+  try {
+    const {
+      machineId
+    } = req.params;
+    const {
+      sensorType
+    } = req.query;
+
+    const machine = await Machine.findById(machineId);
+    if (!machine) {
+      return res.status(404).json({
+        success: false,
+        message: "Machine not found"
+      });
+    }
+
+    // Convert to Map
+    const statusMap = ensureMap(machine.realTimeStatus);
+
+    if (statusMap.size === 0) {
+      return res.json({
+        success: true,
+        data: [],
+        globalStatus: machine.globalStatus,
+        relayState: machine.relayState,
+        buzzerState: machine.buzzerState
+      });
+    }
+
+    // Query specific sensor
     if (sensorType) {
-      const sensorEntry =Array.from((machine.realTimeStatus || new Map()).entries())
-        .find(([key, value]) => value.sensorType === sensorType);
-      
-      if (!sensorEntry) {
-        return res.status(404).json({ 
-          success: false, 
-          message: `Sensor type ${sensorType} not found` 
+      const entry = Array.from(statusMap.entries())
+        .find(([id, data]) => data.sensorType === sensorType);
+
+      if (!entry) {
+        return res.status(404).json({
+          success: false,
+          message: `Sensor type ${sensorType} not found`
         });
       }
 
-      const [sensorId, sensorData] = sensorEntry;
-      const response = {
+      const [sensorId, data] = entry;
+
+      return res.json({
         success: true,
         data: {
-          sensorValue: sensorData.sensorValue,
-          status: sensorData.status,
-          lastUpdate: sensorData.lastUpdate,
-          sensorType: sensorData.sensorType,
-          unit: sensorData.unit,
-          displayConfig: getWidgetDisplayConfig(sensorData.sensorType),
-          sensorId: sensorId
+          sensorId,
+          sensorValue: data.sensorValue,
+          status: data.status,
+          lastUpdate: data.lastUpdate,
+          sensorType: data.sensorType,
+          unit: data.unit,
+          displayConfig: getWidgetDisplayConfig(data.sensorType)
         }
-      };
-
-      return res.json(response);
+      });
     }
 
-    // Return all sensors data
-    const sensorsData = Array.from(machine.realTimeStatus.entries()).map(([sensorId, sensorData]) => ({
+    // All sensors
+    const sensorsData = Array.from(statusMap.entries()).map(([sensorId, d]) => ({
       sensorId,
-      sensorValue: sensorData.sensorValue,
-      status: sensorData.status,
-      lastUpdate: sensorData.lastUpdate,
-      sensorType: sensorData.sensorType,
-      unit: sensorData.unit,
-      displayConfig: getWidgetDisplayConfig(sensorData.sensorType)
+      sensorValue: d.sensorValue,
+      status: d.status,
+      lastUpdate: d.lastUpdate,
+      sensorType: d.sensorType,
+      unit: d.unit,
+      displayConfig: getWidgetDisplayConfig(d.sensorType)
     }));
 
-    const response = {
+    return res.json({
       success: true,
       data: sensorsData,
       globalStatus: machine.globalStatus,
       relayState: machine.relayState,
       buzzerState: machine.buzzerState
-    };
+    });
 
-    res.json(response);
   } catch (error) {
-    res.status(500).json({ success: false, error: error.message });
+    res.status(500).json({
+      success: false,
+      error: error.message
+    });
   }
 };
 
-// New endpoint to update sensor data from ESP32
 exports.updateRealTimeStatus = async (req, res) => {
   try {
-    const { machineId } = req.params;
-    const { sensorId, sensorValue, sensorType, unit, status, relayState, buzzerState } = req.body;
+    const {
+      machineId
+    } = req.params;
+    const {
+      sensorId,
+      sensorValue,
+      sensorType,
+      unit,
+      status,
+      relayState,
+      buzzerState
+    } = req.body;
 
     const machine = await Machine.findById(machineId);
     if (!machine) {
-      return res.status(404).json({ success: false, message: "Machine not found" });
+      return res.status(404).json({
+        success: false,
+        message: "Machine not found"
+      });
     }
 
-    // Update sensor data
+    // Convert to Map before using updateSensorStatus
+    machine.realTimeStatus = ensureMap(machine.realTimeStatus);
+
     machine.updateSensorStatus(sensorId, {
       sensorValue,
       sensorType,
@@ -229,9 +344,10 @@ exports.updateRealTimeStatus = async (req, res) => {
       status: status || 'normal'
     });
 
-    // Update relay and buzzer state if provided
     if (relayState !== undefined) machine.relayState = relayState;
     if (buzzerState !== undefined) machine.buzzerState = buzzerState;
+
+    machine.realTimeStatus = mapToObject(machine.realTimeStatus);
 
     await machine.save();
 
@@ -250,13 +366,16 @@ exports.updateRealTimeStatus = async (req, res) => {
       });
     }
 
-    res.json({ 
-      success: true, 
+    res.json({
+      success: true,
       message: "Sensor data updated",
       globalStatus: machine.globalStatus
     });
   } catch (error) {
-    res.status(500).json({ success: false, error: error.message });
+    res.status(500).json({
+      success: false,
+      error: error.message
+    });
   }
 };
 
@@ -273,7 +392,7 @@ function getWidgetDisplayConfig(sensorType) {
       formatValue: (value) => `${value}°C`
     },
     'kelembaban': {
-      icon: '💧', 
+      icon: '💧',
       title: 'Kelembaban',
       color: '#4FC3F7',
       gradient: ['#4FC3F7', '#81D4FA'],
@@ -341,26 +460,47 @@ function getUnit(sensorType) {
   return units[sensorType] || '';
 }
 
+
+
 exports.getMachinesWithStatus = async (req, res) => {
   try {
-    const machines = await Machine.find().sort({ createdAt: -1 });
-    
-    const machinesWithStatus = machines.map(machine => ({
-      _id: machine._id,
-      name: machine.name,
-      type: machine.type,
-      status: machine.status,
-      realTimeStatus: machine.realTimeStatus,
-      sensorThresholds: machine.sensorThresholds,
-      imageUrl: machine.imageUrl,
-      lastUpdate: machine.realTimeStatus.lastUpdate
-    }));
+    const machines = await Machine.find().sort({
+      createdAt: -1
+    });
 
-    res.status(200).json({ 
-      success: true, 
-      data: machinesWithStatus 
+    const machinesWithStatus = machines.map(machine => {
+      const statusMap = ensureMap(machine.realTimeStatus);
+
+      let lastUpdate = null;
+      if (statusMap.size > 0) {
+        const updates = Array.from(statusMap.values())
+          .map(s => s.lastUpdate)
+          .filter(Boolean);
+        if (updates.length > 0) {
+          lastUpdate = new Date(Math.max(...updates.map(date => new Date(date))));
+        }
+      }
+
+      return {
+        _id: machine._id,
+        name: machine.name,
+        type: machine.type,
+        status: machine.status,
+        realTimeStatus: machine.realTimeStatus || new Map(),
+        sensorThresholds: machine.sensorThresholds,
+        imageUrl: machine.imageUrl,
+        lastUpdate: lastUpdate
+      };
+    });
+
+    res.status(200).json({
+      success: true,
+      data: machinesWithStatus
     });
   } catch (error) {
-    res.status(500).json({ success: false, error: error.message });
+    res.status(500).json({
+      success: false,
+      error: error.message
+    });
   }
 };

@@ -188,7 +188,6 @@ class MqttRentalHelper {
     }
   }
 
-  // Handle sensor data from ESP32
   async handleSensorData(data) {
     const {
       machineId,
@@ -197,63 +196,88 @@ class MqttRentalHelper {
       sensorType,
       value,
       timestamp,
-      unit
+      unit,
+      warningStatus,
+      relayState,
+      emergencyShutdown
     } = data;
 
     console.log(`🌡️ Sensor Data - ${sensorType.toUpperCase()}: ${value}${unit}`);
     console.log(`🏷️ Machine: ${machineId}, Rental: ${rentalId}, Sensor: ${sensorId}`);
 
-    // Validate rental is active
-    if (!this.activeRentals.has(machineId)) {
+    // Rental check
+    if (this.activeRentals.has(machineId)) {
+      const rental = this.activeRentals.get(machineId);
+      rental.lastActivity = new Date();
+    } else {
       console.log(`⚠️ Warning: Received data from inactive rental`);
-      return;
     }
 
-    // Update last activity
-    const rental = this.activeRentals.get(machineId);
-    rental.lastActivity = new Date();
-
     try {
-      // await sensorController.saveSensorDataFromMQTT({ ... });
-
       const machine = await Machine.findById(machineId);
-      if (machine && machine.sensorThresholds) {
-        let status = 'normal';
-        if (value >= machine.sensorThresholds.warning) {
-          status = 'warning';
-          if (machine.sensorThresholds.autoShutdown) {
-            await this.emergencyShutdown(rentalId,
-              `Auto shutdown: Sensor ${sensorType} reached warning threshold (${value}${unit})`);
-          }
-        } else if (value >= machine.sensorThresholds.caution) {
-          status = 'caution';
-        }
-
-        // ⭐⭐ UPDATE REAL-TIME STATUS SAJA, TANPA SAVE HISTORY ⭐⭐
-        await Machine.findByIdAndUpdate(machineId, {
-          $set: {
-            'realTimeStatus.sensorValue': value,
-            'realTimeStatus.sensorType': sensorType,
-            'realTimeStatus.status': status,
-            'realTimeStatus.lastUpdate': new Date()
-          }
-        });
-
-        console.log(`📊 Real-time updated: ${sensorType} = ${value}${unit} (${status})`);
+      if (!machine) {
+        console.error(`❌ Machine not found: ${machineId}`);
+        return;
       }
 
-      // ✅ THRESHOLD NOTIFICATION TETAP JALAN
+      if (!machine.realTimeStatus || !(machine.realTimeStatus instanceof Map)) {
+        machine.realTimeStatus = new Map();
+      }
+
+      const statusMap = {
+        'NORMAL': 'normal',
+        'WARNING': 'warning',
+        'DANGER': 'danger',
+        'CRITICAL': 'critical'
+      };
+      const status = statusMap[warningStatus] || 'normal';
+
+      machine.updateSensorStatus(sensorId, {
+        sensorValue: value,
+        sensorType,
+        unit,
+        status
+      });
+
+      // Update relay & buzzer
+      if (relayState !== undefined) machine.relayState = relayState;
+      if (emergencyShutdown !== undefined) machine.buzzerState = emergencyShutdown;
+
+      await machine.save();
+
+      console.log(`✅ Updated ${sensorType} for machine ${machineId}: ${value}${unit} [${status}]`);
+      console.log(`📊 Global Status: ${machine.globalStatus}`);
+
+      // Threshold notification
       await sendThresholdNotification(machineId, {
-        sensorType: sensorType,
-        value: value,
+        sensorType,
+        value,
         unit: unit || this.getUnit(sensorType),
         timestamp: new Date(timestamp)
       });
 
+      // Auto shutdown
+      if (status === 'critical' || status === 'danger') {
+        console.log(`⚠️ ${status.toUpperCase()} status detected for ${sensorType}`);
+
+        const sensorConfig = machine.sensorConfigs.find(
+          cfg => cfg.sensorId === sensorId
+        );
+
+        if (sensorConfig ?.thresholds) {
+          await this.emergencyShutdown(
+            rentalId,
+            `Auto shutdown: ${sensorType} reached ${status} (${value}${unit})`
+          );
+        }
+      }
+
     } catch (error) {
       console.error('❌ Error handling sensor data:', error);
+      console.error('Stack:', error.stack);
     }
   }
+
 
   getUnit(sensorType) {
     const units = {

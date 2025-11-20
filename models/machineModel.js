@@ -1,11 +1,26 @@
 const mongoose = require("mongoose");
 
 const thresholdSchema = new mongoose.Schema({
-  normal_min: { type: Number, required: true },
-  normal_max: { type: Number, required: true },
-  warning_min: { type: Number, required: true },
-  warning_max: { type: Number, required: true },
-  unit: { type: String, required: true }
+  normal_min: {
+    type: Number,
+    required: true
+  },
+  normal_max: {
+    type: Number,
+    required: true
+  },
+  warning_min: {
+    type: Number,
+    required: true
+  },
+  warning_max: {
+    type: Number,
+    required: true
+  },
+  unit: {
+    type: String,
+    required: true
+  }
 });
 
 const sensorConfigSchema = new mongoose.Schema({
@@ -14,47 +29,85 @@ const sensorConfigSchema = new mongoose.Schema({
     enum: ['suhu', 'kelembaban', 'tekanan', 'getaran', 'thermocouple', 'vibration', 'current'],
     required: true
   },
-  sensorId: { type: String, required: true },
+  sensorId: {
+    type: String,
+    required: true
+  },
   thresholds: thresholdSchema,
-  isActive: { type: Boolean, default: true }
+  isActive: {
+    type: Boolean,
+    default: true
+  }
 });
 
 const machineSchema = new mongoose.Schema({
-  name: { type: String, required: true },
-  type: { type: String, required: true },
-  model: { type: String, required: true },
-  description: { type: String },
-  
+  name: {
+    type: String,
+    required: true
+  },
+  type: {
+    type: String,
+    required: true
+  },
+  model: {
+    type: String,
+    required: true
+  },
+  description: {
+    type: String
+  },
+
   status: {
     type: String,
     enum: ["available", "maintenance", "inactive"],
     default: "available"
   },
-  
-  // Sensor configuration - dynamic sensors
+
   sensorConfigs: [sensorConfigSchema],
-  
-  esp_address: { type: String, default: "" },
-  chipId: { type: String, unique: true, sparse: true },
-  imageUrl: { type: String, default: "" },
 
-  createdAt: { type: Date, default: Date.now },
+  esp_address: {
+    type: String,
+    default: ""
+  },
+  chipId: {
+    type: String,
+    unique: true,
+    sparse: true
+  },
+  imageUrl: {
+    type: String,
+    default: ""
+  },
 
-  // Real-time status for multiple sensors
+  createdAt: {
+    type: Date,
+    default: Date.now
+  },
+
   realTimeStatus: {
     type: Map,
     of: new mongoose.Schema({
-      sensorValue: { type: Number, default: 0 },
+      sensorValue: {
+        type: Number,
+        default: 0
+      },
       status: {
         type: String,
         enum: ['normal', 'warning', 'danger', 'critical'],
         default: 'normal'
       },
-      lastUpdate: { type: Date, default: Date.now },
-      sensorType: { type: String },
-      unit: { type: String }
+      lastUpdate: {
+        type: Date,
+        default: Date.now
+      },
+      sensorType: {
+        type: String
+      },
+      unit: {
+        type: String
+      }
     }),
-    default: {}
+    default: () => new Map()
   },
 
   // Global machine status (aggregated from all sensors)
@@ -63,15 +116,25 @@ const machineSchema = new mongoose.Schema({
     enum: ['normal', 'warning', 'danger', 'critical', 'offline'],
     default: 'normal'
   },
-  
-  relayState: { type: Boolean, default: false },
-  buzzerState: { type: Boolean, default: false }
+
+  relayState: {
+    type: Boolean,
+    default: false
+  },
+  buzzerState: {
+    type: Boolean,
+    default: false
+  }
 });
 
-// Method to update sensor status
-machineSchema.methods.updateSensorStatus = function(sensorId, sensorData) {
-  const { sensorValue, sensorType, unit, status } = sensorData;
-  
+machineSchema.methods.updateSensorStatus = function (sensorId, sensorData) {
+  const {
+    sensorValue,
+    sensorType,
+    unit,
+    status
+  } = sensorData;
+
   this.realTimeStatus.set(sensorId, {
     sensorValue,
     status: status || 'normal',
@@ -79,16 +142,14 @@ machineSchema.methods.updateSensorStatus = function(sensorId, sensorData) {
     unit,
     lastUpdate: new Date()
   });
-  
-  // Update global status based on worst sensor status
+
   this.updateGlobalStatus();
 };
 
-// Method to update global status
-machineSchema.methods.updateGlobalStatus = function() {
+machineSchema.methods.updateGlobalStatus = function () {
   const statusPriority = {
     'critical': 4,
-    'danger': 3, 
+    'danger': 3,
     'warning': 2,
     'normal': 1,
     'offline': 0
@@ -107,5 +168,7 @@ machineSchema.methods.updateGlobalStatus = function() {
 
   this.globalStatus = highestStatus;
 };
+
+
 
 module.exports = mongoose.model("Machine", machineSchema);
