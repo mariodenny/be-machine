@@ -152,9 +152,13 @@ exports.getRealTimeStatus = async (req, res) => {
       return res.status(404).json({ success: false, message: "Machine not found" });
     }
 
+    if (!machine.realTimeStatus) {
+  machine.realTimeStatus = new Map();
+}
+
     // If specific sensor type requested
     if (sensorType) {
-      const sensorEntry = Array.from(machine.realTimeStatus.entries())
+      const sensorEntry =Array.from((machine.realTimeStatus || new Map()).entries())
         .find(([key, value]) => value.sensorType === sensorType);
       
       if (!sensorEntry) {
