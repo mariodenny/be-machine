@@ -650,7 +650,7 @@ exports.endRental = async (req, res) => {
     rental.durasi_aktual_menit = durasiAktualMenit;
     await rental.save();
 
-    if (rental.machineId && rental.machineId.esp_address) {
+    if (rental.machineId) {
       try {
         await mqttHelper.stopRental(
           rental.machineId._id.toString(),
@@ -663,7 +663,6 @@ exports.endRental = async (req, res) => {
     } else {
       console.log("⚠️  No ESP address found, machine will continue running");
     }
-
 
 
     await rental.populate('userId', 'name email');
