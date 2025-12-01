@@ -59,7 +59,7 @@ const machineSchema = new mongoose.Schema({
 
   status: {
     type: String,
-    enum: ["available", "maintenance", "inactive"],
+    enum: ["available", "maintenance", "inactive", "offline"],
     default: "available"
   },
 
@@ -72,8 +72,10 @@ const machineSchema = new mongoose.Schema({
   chipId: {
     type: String,
     unique: true,
-    sparse: true
+    sparse: true,
+    index : true
   },
+  
   imageUrl: {
     type: String,
     default: ""

@@ -504,3 +504,64 @@ exports.getMachinesWithStatus = async (req, res) => {
     });
   }
 };
+
+// Method to update machine data 
+exports.updateEspMachineAddress = async(req,res) => {
+  try{
+    const {machineId} = req.params
+    const {chipId} = req.body
+
+    if(!chipId){
+      return res.status(400).json({
+        success : false,
+        message : 'chipId is required!'
+      })
+    }
+
+    const machine = await Machine.findById(machineId)
+    if(!machine){
+      return res.status(404).json({
+        success : false,
+        message : 'machine not found'
+      })
+    }
+
+     const existingMachine = await Machine.findOne({ 
+      chipId, 
+      _id: { $ne: machineId } 
+    });
+
+    if (existingMachine) {
+      return res.status(400).json({
+        success: false,
+        message: `ESP already assigned to another machine: ${existingMachine.name}`
+      });
+    }
+
+    machine.chipId = chipId;
+    await machine.save();
+
+    res.json({
+      success: true,
+      message: 'ESP address updated successfully',
+      data: {
+        machineId: machine._id,
+        name: machine.name,
+        chipId: machine.chipId
+      }
+    });
+  }catch(error){
+    console.error(`Something went wrong while update esp addres to machine : ${error}`)
+
+    if (error.code === 11000) {
+      return res.status(400).json({
+        success: false,
+        message: 'This chipId is already assigned to another machine'
+      });
+    }
+    res.status(500).json({
+      succes:false,
+      error: error.message
+    })
+  }
+}

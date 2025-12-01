@@ -19,4 +19,7 @@ router.put("/:machineId/thresholds", machineController.updateMachineThresholds);
 router.get("/machine/:machineId/real-time-status", machineController.getRealTimeStatus);
 router.put("/machine/:machineId/real-time-status", machineController.updateRealTimeStatus);
 
+// new routes for update esp address to machine
+router.post("/:machineId/esp", machineController.updateEspMachineAddress)
+
 module.exports = router;
