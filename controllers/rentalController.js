@@ -848,6 +848,183 @@ exports.exportSensorDataWithDelay = async (req, res) => {
   }
 };
 
+// NEW -> Get Rental History by machine id
+exports.getRentalHistoryByMachine = async (req, res) => {
+  try {
+    const { machineId } = req.params;
+    const { startDate, endDate, limit = 50 } = req.query;
+
+    // const filter = { machineId, status: { $ne: 'Disetujui' } };
+
+    if (startDate || endDate) {
+      filter.createdAt = {};
+      if (startDate) filter.createdAt.$gte = new Date(startDate);
+      if (endDate) filter.createdAt.$lte = new Date(endDate);
+    }
+    // Get rentals
+    const rentals = await Rental.find()
+      .populate('userId', 'username email role')
+      .sort({ createdAt: -1 })
+      .limit(parseInt(limit));
+
+    const history = rentals.map(rental => {
+      const start = new Date(rental.awal_peminjaman);
+      const end = rental.akhir_peminjaman ? new Date(rental.akhir_peminjaman) : 
+                 rental.startTime ? new Date(rental.startTime.getTime() + (60 * 60 * 1000)) : // Default 1 hour
+                 new Date(start.getTime() + (60 * 60 * 1000));
+
+      const durationHours = (end - start) / (1000 * 60 * 60);
+
+      return {
+        id: rental._id,
+        date: rental.createdAt,
+        startDate: start,
+        endDate: end,
+        duration: durationHours.toFixed(1) + ' jam',
+        durationHours: parseFloat(durationHours.toFixed(2)),
+        username: rental.userId.username,
+        userRole: rental.userId.role,
+        status: rental.status,
+        isStarted: rental.isStarted,
+        startTime: rental.startTime,
+        endTime: rental.endTime,
+        actualDuration: rental.durasi_aktual_menit ? 
+          (rental.durasi_aktual_menit / 60).toFixed(1) + ' jam' : null
+      };
+    });
+
+    res.status(200).json({
+      success: true,
+      data: history,
+      count: history.length
+    });
+
+  } catch (error) {
+    console.error('❌ Get rental history error:', error);
+    res.status(500).json({
+      success: false,
+      error: error.message
+    });
+  }
+};
+
+// 🔥 GET RENTAL STATISTICS BY MACHINE (Untuk stats card)
+exports.getRentalStatisticsByMachine = async (req, res) => {
+  try {
+    const { machineId } = req.params;
+    const { period = 'month' } = req.query; // month, week, year
+
+    const now = new Date();
+    let startDate;
+
+    // Set period filter
+    switch (period) {
+      case 'week':
+        startDate = new Date(now.getTime() - (7 * 24 * 60 * 60 * 1000));
+        break;
+      case 'month':
+        startDate = new Date(now.getFullYear(), now.getMonth(), 1);
+        break;
+      case 'year':
+        startDate = new Date(now.getFullYear(), 0, 1);
+        break;
+      default:
+        startDate = new Date(now.getFullYear(), now.getMonth(), 1);
+    }
+
+    // Query data
+    const rentals = await Rental.find({
+      machineId,
+      status: 'Disetujui',
+      createdAt: { $gte: startDate }
+    });
+
+    // Hitung statistik
+    const totalRentals = rentals.length;
+    
+    // Hitung total durasi
+    let totalHours = 0;
+    let completedRentals = 0;
+    
+    rentals.forEach(rental => {
+      if (rental.isStarted && rental.endTime) {
+        // Rental yang sudah selesai
+        const durationMs = new Date(rental.endTime) - new Date(rental.startTime || rental.awal_peminjaman);
+        totalHours += durationMs / (1000 * 60 * 60);
+        completedRentals++;
+      } else if (rental.akhir_peminjaman && rental.awal_peminjaman) {
+        // Rental yang dijadwalkan
+        const durationMs = new Date(rental.akhir_peminjaman) - new Date(rental.awal_peminjaman);
+        totalHours += durationMs / (1000 * 60 * 60);
+      }
+    });
+
+    // Hitung unique users
+    const userIds = [...new Set(rentals.map(r => r.userId?.toString()).filter(Boolean))];
+    const uniqueUsers = userIds.length;
+
+    // Hitung per hari (untuk trend 7 hari)
+    const trend7Hari = [];
+    for (let i = 6; i >= 0; i--) {
+      const date = new Date(now);
+      date.setDate(date.getDate() - i);
+      date.setHours(0, 0, 0, 0);
+      
+      const nextDay = new Date(date);
+      nextDay.setDate(nextDay.getDate() + 1);
+
+      const dayRentals = rentals.filter(rental => {
+        const rentalDate = new Date(rental.createdAt);
+        return rentalDate >= date && rentalDate < nextDay;
+      });
+
+      const dayUsers = [...new Set(dayRentals.map(r => r.userId?.toString()).filter(Boolean))].length;
+      
+      // Hitung durasi hari ini
+      let dayHours = 0;
+      dayRentals.forEach(rental => {
+        if (rental.isStarted && rental.endTime) {
+          const durationMs = new Date(rental.endTime) - new Date(rental.startTime || rental.awal_peminjaman);
+          dayHours += durationMs / (1000 * 60 * 60);
+        }
+      });
+
+      trend7Hari.push({
+        date: date.toISOString().split('T')[0],
+        totalDurasiJam: parseFloat(dayHours.toFixed(2)),
+        totalPengguna: dayUsers
+      });
+    }
+
+    res.status(200).json({
+      success: true,
+      data: {
+        period,
+        totalRentals,
+        totalHours: parseFloat(totalHours.toFixed(2)),
+        completedRentals,
+        uniqueUsers,
+        trend7Hari,
+        statsByUserType: {
+          mahasiswa: rentals.filter(r => r.userId?.role === 'mahasiswa').length,
+          pekerja: rentals.filter(r => r.userId?.role === 'pekerja').length,
+          pklMagang: rentals.filter(r => r.userId?.role === 'pkl' || r.userId?.role === 'magang').length,
+          external: rentals.filter(r => r.userId?.role === 'external').length,
+          total: rentals.length
+        },
+        averageDuration: completedRentals > 0 ? 
+          parseFloat((totalHours / completedRentals).toFixed(2)) : 0
+      }
+    });
+
+  } catch (error) {
+    console.error('❌ Get rental statistics error:', error);
+    res.status(500).json({
+      success: false,
+      error: error.message
+    });
+  }
+};
 
 // const emergencyFixRentalDates = async () => {
 //   try {

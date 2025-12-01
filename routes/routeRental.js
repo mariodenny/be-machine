@@ -19,4 +19,9 @@ router.post("/rentals/:id/extend", verifyToken, rentalController.extendRental)
 
 // emergency shutdown
 router.post('/rentals/:rentalId/emergency-shutdown', rentalController.emergencyShutdown);
+
+// new rental data for monitoring
+router.get('/machine/:machineId/history', rentalController.getRentalHistoryByMachine);
+router.get('/machine/:machineId/statistics', rentalController.getRentalStatisticsByMachine);
+
 module.exports = router;
