@@ -11,16 +11,33 @@ exports.createRental = async (req, res) => {
     const {
       machineId,
       userId,
-      awal_peminjaman,
-      akhir_peminjaman
+      awalPeminjaman,     // camelCase dari Flutter
+      akhirPeminjaman,    // camelCase dari Flutter
+      awal_peminjaman,    // snake_case dari Postman
+      akhir_peminjaman    // snake_case dari Postman
     } = req.body;
+    
+    // Gunakan camelCase jika ada, jika tidak gunakan snake_case
+    const awal = awalPeminjaman || awal_peminjaman;
+    const akhir = akhirPeminjaman || akhir_peminjaman;
+    
+    // Validasi required fields
+    if (!machineId || !userId || !awal || !akhir) {
+      return res.status(400).json({
+        success: false,
+        error: 'Missing required fields: machineId, userId, awalPeminjaman/awal_peminjaman, akhirPeminjaman/akhir_peminjaman'
+      });
+    }
+    
     const rental = await Rental.create({
       machineId,
       userId,
-      awal_peminjaman,
-      akhir_peminjaman
+      awal_peminjaman: awal,    // Simpan sebagai snake_case di DB
+      akhir_peminjaman: akhir   // Simpan sebagai snake_case di DB
     });
+    
     await countController.updateRentalCount();
+    
     res.status(201).json({
       success: true,
       data: rental
