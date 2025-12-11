@@ -504,18 +504,21 @@ exports.exportToCsv = async (req, res) => {
   }
 };
 
-// Export to XLSX
 exports.exportToXlsx = async (req, res) => {
   try {
-    const { startDate, endDate, machineId } = req.query;
+    const { startDate, endDate, machineId, sensorType } = req.query;
     
     // Build query filter
     let filter = {};
     
     if (startDate && endDate) {
+      const start = new Date(startDate);
+      const end = new Date(endDate);
+      end.setHours(23, 59, 59, 999); // End of day
+      
       filter.waktu = {
-        $gte: new Date(startDate),
-        $lte: new Date(endDate)
+        $gte: start,
+        $lte: end
       };
     }
     
@@ -523,94 +526,493 @@ exports.exportToXlsx = async (req, res) => {
       filter.machineId = machineId;
     }
     
+    if (sensorType && sensorType !== 'all') {
+      filter.sensorType = sensorType;
+    }
+    
+    console.log('Export filter:', filter);
+    console.log('Start Date:', startDate, 'End Date:', endDate);
+    
     // Get sensor data with machine info
     const sensorData = await Sensor.find(filter)
-      .populate('machineId', 'name type model')
-      .sort({ waktu: -1 });
+      .populate({
+        path: 'machineId',
+        select: 'name type model realTimeStatus sensorConfigs'
+      })
+      .sort({ waktu: -1 })
+      .limit(1000); // Limit untuk menghindari memory issues
     
     if (!sensorData.length) {
-      return res.status(404).json({ message: 'No data found for the specified criteria' });
+      return res.status(404).json({ 
+        message: 'No sensor data found for the specified criteria',
+        filter: filter 
+      });
     }
+    
+    console.log('Total sensor data found:', sensorData.length);
+    
+    // Log first few items untuk debugging
+    sensorData.slice(0, 3).forEach((item, index) => {
+      console.log(`Sample data ${index + 1}:`, {
+        waktu: item.waktu,
+        sensorType: item.sensorType,
+        value: item.value,
+        unit: item.unit,
+        machineName: item.machineId?.name || 'No machine'
+      });
+    });
+    
+    // Function to map sensorType ke nama yang lebih baik
+    const getSensorDisplayName = (sensorType) => {
+      const sensorNames = {
+        'suhu': 'Suhu',
+        'kelembaban': 'Kelembaban',
+        'tekanan': 'Tekanan',
+        'getaran': 'Getaran',
+        'current': 'Arus',
+        'button': 'Tombol',
+        'buzzer': 'Buzzer',
+        'delay_test': 'Test Delay',
+        'thermocouple_k': 'Thermocouple K',
+        'vibration_sensor': 'Sensor Getaran'
+      };
+      return sensorNames[sensorType] || sensorType;
+    };
+    
+    // Function to get status dari realTimeStatus berdasarkan sensorType
+    const getStatusFromRealTimeStatus = (sensorType, machine) => {
+      if (!machine || !machine.realTimeStatus || machine.realTimeStatus.size === 0) {
+        return 'Unknown';
+      }
+      
+      try {
+        // Convert Map ke object
+        const realTimeStatus = machine.realTimeStatus;
+        let statusObj = {};
+        
+        // Handle baik Map maupun plain object
+        if (realTimeStatus instanceof Map) {
+          realTimeStatus.forEach((value, key) => {
+            statusObj[key] = value;
+          });
+        } else if (typeof realTimeStatus === 'object') {
+          statusObj = realTimeStatus;
+        }
+        
+        // Cari sensor dengan type yang sesuai
+        for (const [key, sensorData] of Object.entries(statusObj)) {
+          if (sensorData.sensorType === sensorType) {
+            // Map internal status ke status Excel
+            const statusMap = {
+              'normal': 'Normal',
+              'warning': 'Warning',
+              'danger': 'Critical',
+              'critical': 'Critical'
+            };
+            return statusMap[sensorData.status] || sensorData.status || 'Unknown';
+          }
+        }
+        
+        // Coba cari dengan key yang mengandung sensorType
+        for (const [key, sensorData] of Object.entries(statusObj)) {
+          if (key.includes(sensorType) || sensorType.includes(key)) {
+            const statusMap = {
+              'normal': 'Normal',
+              'warning': 'Warning',
+              'danger': 'Critical',
+              'critical': 'Critical'
+            };
+            return statusMap[sensorData.status] || sensorData.status || 'Unknown';
+          }
+        }
+      } catch (error) {
+        console.error('Error reading realTimeStatus:', error);
+      }
+      
+      return 'Unknown';
+    };
+    
+    // Function untuk menentukan status berdasarkan nilai sensor
+    const determineStatusByValue = (sensorType, value) => {
+      // Thresholds berdasarkan sensor type
+      const thresholds = {
+        'suhu': {
+          normal: { min: 20, max: 40 },
+          warning: { min: 15, max: 45 },
+          critical: { min: 10, max: 50 }
+        },
+        'getaran': {
+          normal: { min: 0, max: 0.5 },
+          warning: { min: 0.5, max: 0.8 },
+          critical: { min: 0.8, max: Infinity }
+        },
+        'tekanan': {
+          normal: { min: 5, max: 8 },
+          warning: { min: 4, max: 9 },
+          critical: { min: 3, max: 10 }
+        },
+        'current': {
+          normal: { min: 0, max: 10 },
+          warning: { min: 10, max: 15 },
+          critical: { min: 15, max: Infinity }
+        },
+        'delay_test': {
+          normal: { min: 0, max: 100 },
+          warning: { min: 100, max: 500 },
+          critical: { min: 500, max: Infinity }
+        }
+      };
+      
+      const sensorThresholds = thresholds[sensorType];
+      if (!sensorThresholds) return 'Unknown';
+      
+      if (value >= sensorThresholds.normal.min && value <= sensorThresholds.normal.max) {
+        return 'Normal';
+      } else if (value >= sensorThresholds.warning.min && value <= sensorThresholds.warning.max) {
+        return 'Warning';
+      } else if (value >= sensorThresholds.critical.min && value <= sensorThresholds.critical.max) {
+        return 'Critical';
+      }
+      
+      return 'Unknown';
+    };
+    
+    // Function untuk mendapatkan unit yang benar
+    const getDisplayUnit = (sensorType, itemUnit) => {
+      if (itemUnit && itemUnit !== 'undefined') {
+        return itemUnit;
+      }
+      
+      const defaultUnits = {
+        'suhu': '°C',
+        'kelembaban': '%',
+        'tekanan': 'Bar',
+        'getaran': 'mm/s',
+        'current': 'A',
+        'button': 'state',
+        'buzzer': 'state',
+        'delay_test': 'ms',
+        'thermocouple_k': '°C',
+        'vibration_sensor': 'mm/s'
+      };
+      
+      return defaultUnits[sensorType] || '';
+    };
+    
+    // Function untuk mendapatkan keterangan
+    const getDescription = (sensorType, value, status, unit) => {
+      const sensorName = getSensorDisplayName(sensorType);
+      
+      const statusTexts = {
+        'Normal': `beroperasi normal`,
+        'Warning': `memerlukan perhatian`,
+        'Critical': `di luar batas aman`,
+        'Unknown': `tidak terdeteksi status`
+      };
+      
+      const statusText = statusTexts[status] || statusTexts['Unknown'];
+      return `${sensorName} ${statusText} (${value}${unit})`;
+    };
     
     // Create workbook and worksheet
     const workbook = new ExcelJS.Workbook();
-    const worksheet = workbook.addWorksheet('Sensor Report');
+    workbook.created = new Date();
+    
+    const worksheet = workbook.addWorksheet('Laporan Sensor');
     
     // Define columns
     worksheet.columns = [
-      { header: 'Timestamp', key: 'timestamp', width: 20 },
-      { header: 'ID Mesin', key: 'machineId', width: 15 },
-      { header: 'Jenis Mesin', key: 'machineType', width: 15 },
-      { header: 'Sensor', key: 'sensor', width: 15 },
-      { header: 'Value', key: 'value', width: 10 },
+      { header: 'No', key: 'no', width: 8 },
+      { header: 'Tanggal/Waktu', key: 'timestamp', width: 25 },
+      { header: 'Nama Mesin', key: 'machineName', width: 25 },
+      { header: 'Jenis Mesin', key: 'machineType', width: 20 },
+      { header: 'Model', key: 'machineModel', width: 20 },
+      { header: 'Tipe Sensor', key: 'sensorType', width: 20 },
+      { header: 'ID Sensor', key: 'sensorId', width: 20 },
+      { header: 'Nilai', key: 'value', width: 15, style: { numFmt: '0.00' } },
       { header: 'Satuan', key: 'unit', width: 10 },
-      { header: 'Status', key: 'status', width: 12 },
-      { header: 'Keterangan', key: 'description', width: 30 }
+      { header: 'Status', key: 'status', width: 15 },
+      { header: 'Keterangan', key: 'description', width: 40 }
     ];
     
-    // Add data rows with conditional formatting
-    sensorData.forEach(item => {
-      const status = determineStatus(item.sensorType, item.value);
-      const keterangan = determineDescription(item.sensorType, item.value, status);
+    // Add data rows
+    let rowNumber = 1;
+    let validDataCount = 0;
+    
+    sensorData.forEach((item, index) => {
+      const machine = item.machineId;
       
+      // Skip jika tidak ada data mesin
+      if (!machine) {
+        console.log(`Skipping row ${index + 1}: No machine data`);
+        return;
+      }
+      
+      // Format timestamp
+      let timestamp;
+      if (item.waktu) {
+        if (typeof item.waktu === 'string') {
+          timestamp = item.waktu;
+        } else {
+          timestamp = new Date(item.waktu).toLocaleString('id-ID', {
+            year: 'numeric',
+            month: '2-digit',
+            day: '2-digit',
+            hour: '2-digit',
+            minute: '2-digit',
+            second: '2-digit'
+          });
+        }
+      } else {
+        timestamp = 'N/A';
+      }
+      
+      // Get unit
+      const unit = getDisplayUnit(item.sensorType, item.unit);
+      
+      // Determine status - coba dari realTimeStatus dulu, lalu dari value
+      let status = getStatusFromRealTimeStatus(item.sensorType, machine);
+      if (status === 'Unknown') {
+        status = determineStatusByValue(item.sensorType, item.value);
+      }
+      
+      // Get description
+      const description = getDescription(item.sensorType, item.value, status, unit);
+      
+      // Add row
       worksheet.addRow({
-        timestamp: item.waktu,
-        machineId: item.machineId ? item.machineId.name : 'N/A',
-        machineType: item.machineId ? item.machineId.type : 'N/A',
-        sensor: item.sensorType.charAt(0).toUpperCase() + item.sensorType.slice(1),
+        no: rowNumber++,
+        timestamp: timestamp,
+        machineName: machine.name || 'N/A',
+        machineType: machine.type || 'N/A',
+        machineModel: machine.model || 'N/A',
+        sensorType: getSensorDisplayName(item.sensorType),
+        sensorId: item.sensorId || item.chipId || 'N/A',
         value: item.value,
-        unit: item.unit,
+        unit: unit,
         status: status,
-        description: keterangan
+        description: description
       });
       
-      // Get the last row added
+      validDataCount++;
+      
+      // Apply styling to the row
       const row = worksheet.lastRow;
       
       // Apply color based on status
       let fillColor;
-      switch(status) {
-        case 'Normal':
-          fillColor = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF00FF00' } }; // Hijau
+      switch(status.toLowerCase()) {
+        case 'normal':
+          fillColor = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF00B050' } }; // Hijau
           break;
-        case 'Caution':
-          fillColor = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFFFFF00' } }; // Kuning
+        case 'warning':
+          fillColor = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFFFC000' } }; // Kuning
           break;
-        case 'Warning':
-          fillColor = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFFF0000' } }; // Merah
-          break;
-        case 'Critical':
+        case 'critical':
           fillColor = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFFF0000' } }; // Merah
           break;
         default:
-          fillColor = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFFFFFFF' } }; // Putih
+          fillColor = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFCCCCCC' } }; // Abu-abu
       }
       
       // Apply fill to status cell
-      row.getCell('status').fill = fillColor;
+      if (row && row.getCell('status')) {
+        row.getCell('status').fill = fillColor;
+        row.getCell('status').font = { bold: true, color: { argb: 'FFFFFFFF' } };
+        row.getCell('status').alignment = { horizontal: 'center' };
+      }
+      
+      // Format nilai cell
+      if (row && row.getCell('value')) {
+        row.getCell('value').numFmt = '0.00';
+        row.getCell('value').alignment = { horizontal: 'right' };
+      }
     });
     
+    console.log(`Exported ${validDataCount} valid rows out of ${sensorData.length} total`);
+    
+    if (validDataCount === 0) {
+      return res.status(404).json({ 
+        message: 'No valid data to export after processing' 
+      });
+    }
+    
     // Style header row
-    worksheet.getRow(1).eachCell((cell) => {
-      cell.font = { bold: true };
+    const headerRow = worksheet.getRow(1);
+    headerRow.eachCell((cell) => {
+      cell.font = { bold: true, color: { argb: 'FFFFFFFF' }, size: 12 };
       cell.fill = {
         type: 'pattern',
         pattern: 'solid',
-        fgColor: { argb: 'FFD3D3D3' }
+        fgColor: { argb: 'FF2E75B6' } // Biru
+      };
+      cell.alignment = { 
+        vertical: 'middle', 
+        horizontal: 'center',
+        wrapText: true 
+      };
+      cell.border = {
+        top: { style: 'thin', color: { argb: 'FF000000' } },
+        left: { style: 'thin', color: { argb: 'FF000000' } },
+        bottom: { style: 'thin', color: { argb: 'FF000000' } },
+        right: { style: 'thin', color: { argb: 'FF000000' } }
       };
     });
     
+    // Set row height untuk header
+    headerRow.height = 30;
+    
+    // Apply borders to all data cells
+    for (let i = 2; i <= worksheet.rowCount; i++) {
+      const row = worksheet.getRow(i);
+      row.eachCell((cell) => {
+        cell.border = {
+          top: { style: 'thin', color: { argb: 'FFCCCCCC' } },
+          left: { style: 'thin', color: { argb: 'FFCCCCCC' } },
+          bottom: { style: 'thin', color: { argb: 'FFCCCCCC' } },
+          right: { style: 'thin', color: { argb: 'FFCCCCCC' } }
+        };
+        cell.alignment = { vertical: 'middle' };
+      });
+      row.height = 22;
+    }
+    
+    // Auto-fit columns
+    worksheet.columns.forEach((column, index) => {
+      let maxLength = 0;
+      const headerLength = column.header ? column.header.length : 0;
+      maxLength = headerLength;
+      
+      column.eachCell({ includeEmpty: false }, (cell) => {
+        const cellValue = cell.value ? cell.value.toString() : '';
+        const cellLength = cellValue.length;
+        if (cellLength > maxLength) {
+          maxLength = cellLength;
+        }
+      });
+      
+      column.width = Math.min(Math.max(maxLength + 4, 10), 60);
+    });
+    
+    // Freeze header row
+    worksheet.views = [
+      {
+        state: 'frozen',
+        xSplit: 0,
+        ySplit: 1,
+        activeCell: 'A2',
+        showGridLines: true
+      }
+    ];
+    
+    // Add worksheet metadata
+    worksheet.properties.defaultRowHeight = 22;
+    
+    // Add title row
+    worksheet.insertRow(1, [
+      `LAPORAN DATA SENSOR`,
+      '',
+      '',
+      '',
+      '',
+      '',
+      '',
+      '',
+      '',
+      '',
+      ''
+    ]);
+    
+    const titleRow = worksheet.getRow(1);
+    titleRow.height = 35;
+    titleRow.font = { bold: true, size: 16, color: { argb: 'FF2E75B6' } };
+    titleRow.alignment = { horizontal: 'center' };
+    worksheet.mergeCells('A1:K1');
+    
+    // Add filter info row
+    const filterInfo = [];
+    if (machineId) {
+      const machineName = sensorData[0]?.machineId?.name || machineId;
+      filterInfo.push(`Mesin: ${machineName}`);
+    }
+    if (startDate && endDate) {
+      filterInfo.push(`Periode: ${startDate} s/d ${endDate}`);
+    }
+    if (sensorType && sensorType !== 'all') {
+      filterInfo.push(`Sensor: ${getSensorDisplayName(sensorType)}`);
+    }
+    
+    if (filterInfo.length > 0) {
+      worksheet.insertRow(2, [
+        filterInfo.join(' | '),
+        '',
+        '',
+        '',
+        '',
+        '',
+        '',
+        '',
+        '',
+        '',
+        ''
+      ]);
+      
+      const filterRow = worksheet.getRow(2);
+      filterRow.font = { italic: true, size: 10 };
+      filterRow.alignment = { horizontal: 'center' };
+      worksheet.mergeCells('A2:K2');
+      
+      // Shift data rows down
+      worksheet._rows.splice(2, 0, worksheet._rows.pop());
+    }
+    
+    // Add summary row
+    const lastRow = worksheet.rowCount + 1;
+    worksheet.addRow([
+      'Total Data:',
+      '',
+      '',
+      '',
+      '',
+      '',
+      '',
+      validDataCount,
+      'records',
+      '',
+      ''
+    ]);
+    
+    const summaryRow = worksheet.getRow(lastRow);
+    summaryRow.font = { bold: true };
+    summaryRow.fill = {
+      type: 'pattern',
+      pattern: 'solid',
+      fgColor: { argb: 'FFF2F2F2' }
+    };
+    worksheet.mergeCells(`A${lastRow}:G${lastRow}`);
+    worksheet.mergeCells(`H${lastRow}:I${lastRow}`);
+    
     // Set response headers
+    const machineName = sensorData[0]?.machineId?.name || 'all-machines';
+    const safeMachineName = machineName.replace(/[^a-zA-Z0-9-_]/g, '_');
+    const fileName = `sensor-report-${safeMachineName}-${new Date().toISOString().split('T')[0]}.xlsx`;
+    
     res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
-    res.setHeader('Content-Disposition', `attachment; filename=sensor-report-${new Date().toISOString().split('T')[0]}.xlsx`);
+    res.setHeader('Content-Disposition', `attachment; filename="${fileName}"`);
     
     // Write to response
     await workbook.xlsx.write(res);
     res.end();
     
+    console.log(`Export completed: ${fileName} with ${validDataCount} records`);
+    
   } catch (error) {
     console.error('Export XLSX error:', error);
-    res.status(500).json({ error: error.message });
+    res.status(500).json({ 
+      error: 'Failed to export data',
+      message: error.message,
+      stack: process.env.NODE_ENV === 'development' ? error.stack : undefined
+    });
   }
 };
 

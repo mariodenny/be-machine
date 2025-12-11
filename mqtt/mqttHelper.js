@@ -1,5 +1,6 @@
 const mqtt = require('mqtt');
 const sensorController = require('../controllers/V2/sensorController');
+const SensorV2 = require('../models/V2/sensorModel');
 const Machine = require('../models/machineModel');
 const {
   sendThresholdNotification
@@ -81,35 +82,259 @@ class MqttRentalHelper {
     });
   }
 
-  // Handle incoming messages
-  async handleMessage(topic, message) {
-    try {
-      const messageStr = message.toString();
-      const data = JSON.parse(messageStr);
+  async handleSensorData(data) {
+  const {
+    machineId,
+    rentalId,
+    sensorId,
+    sensorType,
+    value,
+    timestamp,
+    unit,
+    warningStatus,
+    relayState,
+    emergencyShutdown
+  } = data;
 
-      console.log(`\n📥 Received on ${topic}:`);
-      console.log(JSON.stringify(data, null, 2));
+  console.log(`🌡️ Sensor Data - ${sensorType.toUpperCase()}: ${value}${unit || ''}`);
+  console.log(`🏷️ Machine: ${machineId}, Rental: ${rentalId}, Sensor: ${sensorId}`);
 
-      // Extract chipId from topic
-      const topicParts = topic.split('/');
-      const chipId = topicParts[1];
-
-      // Handle different message types
-      if (topic.includes('/heartbeat')) {
-        await this.handleHeartbeat(chipId, data);
-      } else if (topic.includes('/connection')) {
-        await this.handleConnection(chipId, data);
-      } else if (topic.includes('/report')) {
-        await this.handleReportMessage(data);
-      } else if (topic.includes('/data')) {
-        await this.handleSensorData(data);
-      } else {
-        console.log(`❓ Unknown topic: ${topic}`);
-      }
-    } catch (error) {
-      console.error('❌ Error handling message:', error);
-    }
+  // Rental check
+  if (this.activeRentals.has(machineId)) {
+    const rental = this.activeRentals.get(machineId);
+    rental.lastActivity = new Date();
+  } else {
+    console.log(`⚠️ Warning: Received data from inactive rental`);
   }
+
+  try {
+    // 1. FIND MACHINE
+    const machine = await Machine.findById(machineId);
+    if (!machine) {
+      console.error(`❌ Machine not found: ${machineId}`);
+      return;
+    }
+
+    // 2. UPDATE REAL-TIME STATUS DI MACHINE
+    if (!machine.realTimeStatus || !(machine.realTimeStatus instanceof Map)) {
+      machine.realTimeStatus = new Map();
+    }
+
+    const statusMap = {
+      'NORMAL': 'normal',
+      'WARNING': 'warning',
+      'DANGER': 'danger',
+      'CRITICAL': 'critical'
+    };
+    const status = statusMap[warningStatus] || 'normal';
+
+    machine.updateSensorStatus(sensorId, {
+      sensorValue: value,
+      sensorType,
+      unit,
+      status
+    });
+
+    // Update relay & buzzer
+    if (relayState !== undefined) machine.relayState = relayState;
+    if (emergencyShutdown !== undefined) machine.buzzerState = emergencyShutdown;
+
+    await machine.save();
+    console.log(`✅ Updated realTimeStatus for ${sensorType}: ${value}${unit || ''} [${status}]`);
+    console.log(`📊 Global Status: ${machine.globalStatus}`);
+
+    // 3. SAVE TO SENSORV2 COLLECTION (YANG BARU DITAMBAHKAN)
+    try {
+      const sensorRecord = new SensorV2({
+        machineId: machineId,
+        rentalId: rentalId,
+        chipId: data.chipId || machine.chipId,
+        sensorId: sensorId,
+        sensorType: sensorType,
+        value: value,
+        unit: unit || this.getUnit(sensorType),
+        mqttTopic: `sensor/${sensorId}/data`,
+        deviceTimestamp: Date.now(),
+        waktu: Date.now(),
+        
+        // Legacy fields untuk backward compatibility
+        current: sensorType === 'current' ? value : null,
+        button: sensorType === 'button' ? Boolean(value) : null,
+        buzzerStatus: sensorType === 'buzzer' ? Boolean(value) : null,
+        
+        // Status info
+        isValid: true,
+        errorCode: null
+      });
+
+      await sensorRecord.save();
+      console.log(`💾 Saved to SensorV2: ${sensorType} = ${value}${unit || ''}`);
+      
+    } catch (sensorSaveError) {
+      console.error('❌ Failed to save to SensorV2:', sensorSaveError.message);
+      // Jangan throw error utama, hanya log saja
+    }
+
+    // 4. THRESHOLD NOTIFICATION
+    await sendThresholdNotification(machineId, {
+      sensorType,
+      value,
+      unit: unit || this.getUnit(sensorType),
+      timestamp: new Date(timestamp || Date.now())
+    });
+
+    // 5. AUTO SHUTDOWN LOGIC
+    if (status === 'critical' || status === 'danger') {
+      console.log(`⚠️ ${status.toUpperCase()} status detected for ${sensorType}`);
+
+      const sensorConfig = machine.sensorConfigs.find(
+        cfg => cfg.sensorId === sensorId
+      );
+
+      if (sensorConfig?.thresholds) {
+        await this.emergencyShutdown(
+          rentalId,
+          `Auto shutdown: ${sensorType} reached ${status} (${value}${unit || ''})`
+        );
+      }
+    }
+
+  } catch (error) {
+    console.error('❌ Error handling sensor data:', error);
+    console.error('Stack:', error.stack);
+  }
+}
+  async handleMultipleSensorData(data) {
+  if (Array.isArray(data.sensors)) {
+    console.log(`📦 Received batch of ${data.sensors.length} sensors`);
+    
+    const promises = data.sensors.map(sensor => {
+      return this.handleSingleSensorData({
+        ...data,
+        sensorId: sensor.sensorId,
+        sensorType: sensor.sensorType,
+        value: sensor.value,
+        unit: sensor.unit,
+        warningStatus: sensor.warningStatus
+      });
+    });
+    
+    await Promise.all(promises);
+  } else {
+    // Handle single sensor data
+    await this.handleSingleSensorData(data);
+  }
+}
+
+// Helper untuk handle single sensor
+async handleSingleSensorData(data) {
+  const {
+    machineId,
+    rentalId,
+    sensorId,
+    sensorType,
+    value,
+    timestamp,
+    unit,
+    warningStatus
+  } = data;
+
+  try {
+    // Validasi sensor type sesuai enum di SensorV2
+    const validSensorTypes = ['suhu', 'kelembaban', 'tekanan', 'getaran', 'current', 'button', 'buzzer', 'delay_test'];
+    
+    if (!validSensorTypes.includes(sensorType)) {
+      console.warn(`⚠️ Unknown sensor type: ${sensorType}, mapping to closest...`);
+      // Mapping sensor type yang mungkin dikirim ESP
+      const sensorTypeMapping = {
+        'thermocouple_k': 'suhu',
+        'vibration_sensor': 'getaran',
+        'temperature': 'suhu',
+        'vibration': 'getaran',
+        'pressure': 'tekanan',
+        'humidity': 'kelembaban',
+        'power': 'current'
+      };
+      
+      const mappedType = sensorTypeMapping[sensorType] || 'suhu';
+      data.sensorType = mappedType;
+    }
+
+    // Save to SensorV2
+    const sensorRecord = new SensorV2({
+      machineId: machineId,
+      rentalId: rentalId,
+      chipId: data.chipId,
+      sensorId: sensorId,
+      sensorType: data.sensorType, // Use mapped type
+      value: parseFloat(value),
+      unit: unit || this.getUnit(data.sensorType),
+      mqttTopic: `sensor/${sensorId}/data`,
+      deviceTimestamp: Date.now(),
+      waktu: Date.now(),
+      
+      // Set legacy fields
+      current: data.sensorType === 'current' ? parseFloat(value) : null,
+      button: data.sensorType === 'button' ? Boolean(value) : null,
+      buzzerStatus: data.sensorType === 'buzzer' ? Boolean(value) : null,
+      
+      isValid: true,
+      errorCode: null
+    });
+
+    await sensorRecord.save();
+    console.log(`💾 SensorV2 saved: ${sensorId} (${data.sensorType}) = ${value}${unit || ''}`);
+    
+  } catch (error) {
+    console.error(`❌ Failed to save sensor ${sensorId}:`, error.message);
+  }
+}
+
+  // Handle incoming messages
+ async handleMessage(topic, message) {
+  try {
+    const messageStr = message.toString();
+    const data = JSON.parse(messageStr);
+
+    console.log(`\n📥 Received on ${topic}:`);
+    console.log(JSON.stringify(data, null, 2));
+
+    // Extract chipId from topic
+    const topicParts = topic.split('/');
+    const chipId = topicParts[1];
+
+    // Handle different message types
+    if (topic.includes('/heartbeat')) {
+      await this.handleHeartbeat(chipId, data);
+    } else if (topic.includes('/connection')) {
+      await this.handleConnection(chipId, data);
+    } else if (topic.includes('/report')) {
+      await this.handleReportMessage(data);
+    } else if (topic.includes('/data')) {
+      if (data.sensors && Array.isArray(data.sensors)) {
+        await this.handleMultipleSensorData({
+          ...data,
+          chipId: chipId
+        });
+      } else {
+        await this.handleSensorData({
+          ...data,
+          chipId: chipId
+        });
+      }
+    } else if (topic.includes('/sensors')) {
+      // New endpoint for multiple sensors
+      await this.handleMultipleSensorData({
+        ...data,
+        chipId: chipId
+      });
+    } else {
+      console.log(`❓ Unknown topic: ${topic}`);
+    }
+  } catch (error) {
+    console.error('❌ Error handling message:', error);
+  }
+}
 
   // NEW: Handle heartbeat untuk track ESP online status
   async handleHeartbeat(chipId, data) {
@@ -188,95 +413,68 @@ class MqttRentalHelper {
     }
   }
 
-  async handleSensorData(data) {
-    const {
-      machineId,
-      rentalId,
-      sensorId,
-      sensorType,
-      value,
-      timestamp,
-      unit,
-      warningStatus,
-      relayState,
-      emergencyShutdown
-    } = data;
+  async handleSingleSensorData(data) {
+  const {
+    machineId,
+    rentalId,
+    sensorId,
+    sensorType,
+    value,
+    timestamp,
+    unit,
+    warningStatus
+  } = data;
 
-    console.log(`🌡️ Sensor Data - ${sensorType.toUpperCase()}: ${value}${unit}`);
-    console.log(`🏷️ Machine: ${machineId}, Rental: ${rentalId}, Sensor: ${sensorId}`);
-
-    // Rental check
-    if (this.activeRentals.has(machineId)) {
-      const rental = this.activeRentals.get(machineId);
-      rental.lastActivity = new Date();
-    } else {
-      console.log(`⚠️ Warning: Received data from inactive rental`);
-    }
-
-    try {
-      const machine = await Machine.findById(machineId);
-      if (!machine) {
-        console.error(`❌ Machine not found: ${machineId}`);
-        return;
-      }
-
-      if (!machine.realTimeStatus || !(machine.realTimeStatus instanceof Map)) {
-        machine.realTimeStatus = new Map();
-      }
-
-      const statusMap = {
-        'NORMAL': 'normal',
-        'WARNING': 'warning',
-        'DANGER': 'danger',
-        'CRITICAL': 'critical'
+  try {
+    // Validasi sensor type sesuai enum di SensorV2
+    const validSensorTypes = ['suhu', 'kelembaban', 'tekanan', 'getaran', 'current', 'button', 'buzzer', 'delay_test'];
+    
+    if (!validSensorTypes.includes(sensorType)) {
+      console.warn(`⚠️ Unknown sensor type: ${sensorType}, mapping to closest...`);
+      // Mapping sensor type yang mungkin dikirim ESP
+      const sensorTypeMapping = {
+        'thermocouple_k': 'suhu',
+        'vibration_sensor': 'getaran',
+        'temperature': 'suhu',
+        'vibration': 'getaran',
+        'pressure': 'tekanan',
+        'humidity': 'kelembaban',
+        'power': 'current'
       };
-      const status = statusMap[warningStatus] || 'normal';
-
-      machine.updateSensorStatus(sensorId, {
-        sensorValue: value,
-        sensorType,
-        unit,
-        status
-      });
-
-      // Update relay & buzzer
-      if (relayState !== undefined) machine.relayState = relayState;
-      if (emergencyShutdown !== undefined) machine.buzzerState = emergencyShutdown;
-
-      await machine.save();
-
-      console.log(`✅ Updated ${sensorType} for machine ${machineId}: ${value}${unit} [${status}]`);
-      console.log(`📊 Global Status: ${machine.globalStatus}`);
-
-      // Threshold notification
-      await sendThresholdNotification(machineId, {
-        sensorType,
-        value,
-        unit: unit || this.getUnit(sensorType),
-        timestamp: new Date(timestamp)
-      });
-
-      // Auto shutdown
-      if (status === 'critical' || status === 'danger') {
-        console.log(`⚠️ ${status.toUpperCase()} status detected for ${sensorType}`);
-
-        const sensorConfig = machine.sensorConfigs.find(
-          cfg => cfg.sensorId === sensorId
-        );
-
-        if (sensorConfig ?.thresholds) {
-          await this.emergencyShutdown(
-            rentalId,
-            `Auto shutdown: ${sensorType} reached ${status} (${value}${unit})`
-          );
-        }
-      }
-
-    } catch (error) {
-      console.error('❌ Error handling sensor data:', error);
-      console.error('Stack:', error.stack);
+      
+      const mappedType = sensorTypeMapping[sensorType] || 'suhu';
+      data.sensorType = mappedType;
     }
+
+    // Save to SensorV2
+    const sensorRecord = new SensorV2({
+      machineId: machineId,
+      rentalId: rentalId,
+      chipId: data.chipId,
+      sensorId: sensorId,
+      sensorType: data.sensorType, // Use mapped type
+      value: parseFloat(value),
+      unit: unit || this.getUnit(data.sensorType),
+      mqttTopic: `sensor/${sensorId}/data`,
+      deviceTimestamp: Date.now(),
+      waktu: Date.now(),
+      
+      current: data.sensorType === 'current' ? parseFloat(value) : null,
+      button: data.sensorType === 'button' ? Boolean(value) : null,
+      buzzerStatus: data.sensorType === 'buzzer' ? Boolean(value) : null,
+      
+      isValid: true,
+      errorCode: null
+    });
+
+    await sensorRecord.save();
+    console.log(`💾 SensorV2 saved: ${sensorId} (${data.sensorType}) = ${value}${unit || ''}`);
+    
+  } catch (error) {
+    console.error(`❌ Failed to save sensor ${sensorId}:`, error.message);
   }
+}
+
 
 
   getUnit(sensorType) {
