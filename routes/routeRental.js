@@ -5,17 +5,17 @@ const rentalController = require("../controllers/rentalController");
 const verifyToken = require("../middleware/verifyToken"); // Sama, kalau mau pakai auth
 
 // CRUD Rental
-router.post("/rentals", verifyToken, rentalController.createRental);
-router.get("/rentals", verifyToken, rentalController.getRentals);
-router.get("/rentals/status", verifyToken, rentalController.getRentalsByStatus);
-router.put("/rentals/:id", verifyToken, rentalController.updateRental);
-router.delete("/rentals/:id", verifyToken, rentalController.deleteRental);
-router.patch("/rentals/:id/status", verifyToken, rentalController.updateRentalStatus);
-router.patch("/rentals/:id/start", verifyToken, rentalController.startRental);
+router.post("/rentals", rentalController.createRental);
+router.get("/rentals", rentalController.getRentals);
+router.get("/rentals/status", rentalController.getRentalsByStatus);
+router.put("/rentals/:id", rentalController.updateRental);
+router.delete("/rentals/:id", rentalController.deleteRental);
+router.patch("/rentals/:id/status", rentalController.updateRentalStatus);
+router.patch("/rentals/:id/start", rentalController.startRental);
 router.patch("/rentals/:id/end", rentalController.endRental);
-router.get("/rentals/:id", verifyToken, rentalController.getRentalById);
-router.get("/rentals/user/:userId", verifyToken, rentalController.getRentalByUserId)
-router.post("/rentals/:id/extend", verifyToken, rentalController.extendRental)
+router.get("/rentals/:id", rentalController.getRentalById);
+router.get("/rentals/user/:userId", rentalController.getRentalByUserId)
+router.post("/rentals/:id/extend", rentalController.extendRental)
 
 // emergency shutdown
 router.post('/rentals/:rentalId/emergency-shutdown', rentalController.emergencyShutdown);
