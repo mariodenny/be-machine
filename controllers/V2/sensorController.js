@@ -537,7 +537,7 @@ exports.exportToXlsx = async (req, res) => {
     const sensorData = await Sensor.find(filter)
       .populate({
         path: 'machineId',
-        select: 'name type model realTimeStatus sensorConfigs'
+        select: 'name type model'
       })
       .sort({ waktu: -1 })
       .limit(1000); // Limit untuk menghindari memory issues
@@ -579,104 +579,6 @@ exports.exportToXlsx = async (req, res) => {
       return sensorNames[sensorType] || sensorType;
     };
     
-    // Function to get status dari realTimeStatus berdasarkan sensorType
-    const getStatusFromRealTimeStatus = (sensorType, machine) => {
-      if (!machine || !machine.realTimeStatus || machine.realTimeStatus.size === 0) {
-        return 'Unknown';
-      }
-      
-      try {
-        // Convert Map ke object
-        const realTimeStatus = machine.realTimeStatus;
-        let statusObj = {};
-        
-        // Handle baik Map maupun plain object
-        if (realTimeStatus instanceof Map) {
-          realTimeStatus.forEach((value, key) => {
-            statusObj[key] = value;
-          });
-        } else if (typeof realTimeStatus === 'object') {
-          statusObj = realTimeStatus;
-        }
-        
-        // Cari sensor dengan type yang sesuai
-        for (const [key, sensorData] of Object.entries(statusObj)) {
-          if (sensorData.sensorType === sensorType) {
-            // Map internal status ke status Excel
-            const statusMap = {
-              'normal': 'Normal',
-              'warning': 'Warning',
-              'danger': 'Critical',
-              'critical': 'Critical'
-            };
-            return statusMap[sensorData.status] || sensorData.status || 'Unknown';
-          }
-        }
-        
-        // Coba cari dengan key yang mengandung sensorType
-        for (const [key, sensorData] of Object.entries(statusObj)) {
-          if (key.includes(sensorType) || sensorType.includes(key)) {
-            const statusMap = {
-              'normal': 'Normal',
-              'warning': 'Warning',
-              'danger': 'Critical',
-              'critical': 'Critical'
-            };
-            return statusMap[sensorData.status] || sensorData.status || 'Unknown';
-          }
-        }
-      } catch (error) {
-        console.error('Error reading realTimeStatus:', error);
-      }
-      
-      return 'Unknown';
-    };
-    
-    // Function untuk menentukan status berdasarkan nilai sensor
-    const determineStatusByValue = (sensorType, value) => {
-      // Thresholds berdasarkan sensor type
-      const thresholds = {
-        'suhu': {
-          normal: { min: 20, max: 40 },
-          warning: { min: 15, max: 45 },
-          critical: { min: 10, max: 50 }
-        },
-        'getaran': {
-          normal: { min: 0, max: 0.5 },
-          warning: { min: 0.5, max: 0.8 },
-          critical: { min: 0.8, max: Infinity }
-        },
-        'tekanan': {
-          normal: { min: 5, max: 8 },
-          warning: { min: 4, max: 9 },
-          critical: { min: 3, max: 10 }
-        },
-        'current': {
-          normal: { min: 0, max: 10 },
-          warning: { min: 10, max: 15 },
-          critical: { min: 15, max: Infinity }
-        },
-        'delay_test': {
-          normal: { min: 0, max: 100 },
-          warning: { min: 100, max: 500 },
-          critical: { min: 500, max: Infinity }
-        }
-      };
-      
-      const sensorThresholds = thresholds[sensorType];
-      if (!sensorThresholds) return 'Unknown';
-      
-      if (value >= sensorThresholds.normal.min && value <= sensorThresholds.normal.max) {
-        return 'Normal';
-      } else if (value >= sensorThresholds.warning.min && value <= sensorThresholds.warning.max) {
-        return 'Warning';
-      } else if (value >= sensorThresholds.critical.min && value <= sensorThresholds.critical.max) {
-        return 'Critical';
-      }
-      
-      return 'Unknown';
-    };
-    
     // Function untuk mendapatkan unit yang benar
     const getDisplayUnit = (sensorType, itemUnit) => {
       if (itemUnit && itemUnit !== 'undefined') {
@@ -699,28 +601,13 @@ exports.exportToXlsx = async (req, res) => {
       return defaultUnits[sensorType] || '';
     };
     
-    // Function untuk mendapatkan keterangan
-    const getDescription = (sensorType, value, status, unit) => {
-      const sensorName = getSensorDisplayName(sensorType);
-      
-      const statusTexts = {
-        'Normal': `beroperasi normal`,
-        'Warning': `memerlukan perhatian`,
-        'Critical': `di luar batas aman`,
-        'Unknown': `tidak terdeteksi status`
-      };
-      
-      const statusText = statusTexts[status] || statusTexts['Unknown'];
-      return `${sensorName} ${statusText} (${value}${unit})`;
-    };
-    
     // Create workbook and worksheet
     const workbook = new ExcelJS.Workbook();
     workbook.created = new Date();
     
     const worksheet = workbook.addWorksheet('Laporan Sensor');
     
-    // Define columns
+    // Define columns - TANPA STATUS dan KETERANGAN
     worksheet.columns = [
       { header: 'No', key: 'no', width: 8 },
       { header: 'Tanggal/Waktu', key: 'timestamp', width: 25 },
@@ -730,9 +617,8 @@ exports.exportToXlsx = async (req, res) => {
       { header: 'Tipe Sensor', key: 'sensorType', width: 20 },
       { header: 'ID Sensor', key: 'sensorId', width: 20 },
       { header: 'Nilai', key: 'value', width: 15, style: { numFmt: '0.00' } },
-      { header: 'Satuan', key: 'unit', width: 10 },
-      { header: 'Status', key: 'status', width: 15 },
-      { header: 'Keterangan', key: 'description', width: 40 }
+      { header: 'Satuan', key: 'unit', width: 10 }
+      // Status dan Keterangan dihapus
     ];
     
     // Add data rows
@@ -770,16 +656,7 @@ exports.exportToXlsx = async (req, res) => {
       // Get unit
       const unit = getDisplayUnit(item.sensorType, item.unit);
       
-      // Determine status - coba dari realTimeStatus dulu, lalu dari value
-      let status = getStatusFromRealTimeStatus(item.sensorType, machine);
-      if (status === 'Unknown') {
-        status = determineStatusByValue(item.sensorType, item.value);
-      }
-      
-      // Get description
-      const description = getDescription(item.sensorType, item.value, status, unit);
-      
-      // Add row
+      // Add row - TANPA status dan description
       worksheet.addRow({
         no: rowNumber++,
         timestamp: timestamp,
@@ -789,38 +666,14 @@ exports.exportToXlsx = async (req, res) => {
         sensorType: getSensorDisplayName(item.sensorType),
         sensorId: item.sensorId || item.chipId || 'N/A',
         value: item.value,
-        unit: unit,
-        status: status,
-        description: description
+        unit: unit
+        // Status dan description dihapus
       });
       
       validDataCount++;
       
       // Apply styling to the row
       const row = worksheet.lastRow;
-      
-      // Apply color based on status
-      let fillColor;
-      switch(status.toLowerCase()) {
-        case 'normal':
-          fillColor = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF00B050' } }; // Hijau
-          break;
-        case 'warning':
-          fillColor = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFFFC000' } }; // Kuning
-          break;
-        case 'critical':
-          fillColor = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFFF0000' } }; // Merah
-          break;
-        default:
-          fillColor = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFCCCCCC' } }; // Abu-abu
-      }
-      
-      // Apply fill to status cell
-      if (row && row.getCell('status')) {
-        row.getCell('status').fill = fillColor;
-        row.getCell('status').font = { bold: true, color: { argb: 'FFFFFFFF' } };
-        row.getCell('status').alignment = { horizontal: 'center' };
-      }
       
       // Format nilai cell
       if (row && row.getCell('value')) {
@@ -908,7 +761,7 @@ exports.exportToXlsx = async (req, res) => {
     // Add worksheet metadata
     worksheet.properties.defaultRowHeight = 22;
     
-    // Add title row
+    // Add title row - Update merge cells karena kolom berkurang
     worksheet.insertRow(1, [
       `LAPORAN DATA SENSOR`,
       '',
@@ -918,16 +771,14 @@ exports.exportToXlsx = async (req, res) => {
       '',
       '',
       '',
-      '',
-      '',
-      ''
+      '' // Kolom berkurang dari 11 ke 9
     ]);
     
     const titleRow = worksheet.getRow(1);
     titleRow.height = 35;
     titleRow.font = { bold: true, size: 16, color: { argb: 'FF2E75B6' } };
     titleRow.alignment = { horizontal: 'center' };
-    worksheet.mergeCells('A1:K1');
+    worksheet.mergeCells('A1:I1'); // A1:I1 (9 kolom)
     
     // Add filter info row
     const filterInfo = [];
@@ -952,15 +803,13 @@ exports.exportToXlsx = async (req, res) => {
         '',
         '',
         '',
-        '',
-        '',
-        ''
+        '' // Kolom berkurang dari 11 ke 9
       ]);
       
       const filterRow = worksheet.getRow(2);
       filterRow.font = { italic: true, size: 10 };
       filterRow.alignment = { horizontal: 'center' };
-      worksheet.mergeCells('A2:K2');
+      worksheet.mergeCells('A2:I2'); // A2:I2 (9 kolom)
       
       // Shift data rows down
       worksheet._rows.splice(2, 0, worksheet._rows.pop());
@@ -977,9 +826,8 @@ exports.exportToXlsx = async (req, res) => {
       '',
       '',
       validDataCount,
-      'records',
-      '',
-      ''
+      'records'
+      // Kolom berkurang
     ]);
     
     const summaryRow = worksheet.getRow(lastRow);
@@ -989,8 +837,8 @@ exports.exportToXlsx = async (req, res) => {
       pattern: 'solid',
       fgColor: { argb: 'FFF2F2F2' }
     };
-    worksheet.mergeCells(`A${lastRow}:G${lastRow}`);
-    worksheet.mergeCells(`H${lastRow}:I${lastRow}`);
+    worksheet.mergeCells(`A${lastRow}:G${lastRow}`); // A-G (7 kolom pertama)
+    worksheet.mergeCells(`H${lastRow}:I${lastRow}`); // H-I (2 kolom terakhir)
     
     // Set response headers
     const machineName = sensorData[0]?.machineId?.name || 'all-machines';
@@ -1015,7 +863,6 @@ exports.exportToXlsx = async (req, res) => {
     });
   }
 };
-
 
 exports.checkSystemDelay = async (req, res) => {
   try {
