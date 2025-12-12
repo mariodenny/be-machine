@@ -8,6 +8,7 @@ const mqttHelper = require('../mqtt/mqttHelper')
 
 exports.createRental = async (req, res) => {
   try {
+
     const {
       machineId,
       userId,
@@ -20,6 +21,11 @@ exports.createRental = async (req, res) => {
     // Gunakan camelCase jika ada, jika tidak gunakan snake_case
     const awal = awalPeminjaman || awal_peminjaman;
     const akhir = akhirPeminjaman || akhir_peminjaman;
+
+    console.log('=== BACKEND RECEIVED ===');
+    console.log('req.body:', req.body);
+    console.log('awalPeminjaman:', req.body.awalPeminjaman);
+    console.log('akhirPeminjaman:', req.body.akhirPeminjaman);
     
     // Validasi required fields
     if (!machineId || !userId || !awal || !akhir) {
